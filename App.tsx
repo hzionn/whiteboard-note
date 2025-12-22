@@ -12,8 +12,11 @@ import {
   createWhiteboardItemForNote,
   batchUpsertWhiteboardItems,
   deleteWhiteboardItemsByNoteId,
+  getFrames,
+  saveFrames,
+  createFrame,
 } from './services/storage';
-import { Note, WhiteboardItem } from './types';
+import { Frame, Note, WhiteboardItem } from './types';
 import { v4 as uuidv4 } from 'uuid';
 
 // Initial check for data
@@ -53,11 +56,18 @@ const App: React.FC = () => {
   const [activeNoteId, setActiveNoteId] = useState<string | null>(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [whiteboardItems, setWhiteboardItems] = useState<WhiteboardItem[]>([]);
+  const [frames, setFrames] = useState<Frame[]>([]);
   const [centerOnRequest, setCenterOnRequest] = useState<{ noteId: string; nonce: number } | null>(null);
+  const [centerOnFrameRequest, setCenterOnFrameRequest] = useState<{ frameId: string; nonce: number } | null>(null);
   const [isNotesDropdownOpen, setIsNotesDropdownOpen] = useState(false);
   const [notesSearch, setNotesSearch] = useState('');
   const notesDropdownRef = useRef<HTMLDivElement>(null);
   const notesSearchInputRef = useRef<HTMLInputElement>(null);
+
+  const [isFramesDropdownOpen, setIsFramesDropdownOpen] = useState(false);
+  const [framesSearch, setFramesSearch] = useState('');
+  const framesDropdownRef = useRef<HTMLDivElement>(null);
+  const framesSearchInputRef = useRef<HTMLInputElement>(null);
 
   const pendingWhiteboardSavesRef = React.useRef<Map<string, WhiteboardItem>>(new Map());
   const whiteboardSaveTimerRef = React.useRef<number | null>(null);
@@ -80,6 +90,11 @@ const App: React.FC = () => {
     const storedNotes = getNotes();
     if (storedNotes.length > 0 && !activeNoteId) {
         setActiveNoteId(storedNotes[0].id);
+    }
+
+    const storedFrames = getFrames();
+    if (storedFrames.length > 0) {
+      setFrames(storedFrames);
     }
 
     const storedItems = getWhiteboardItems();
@@ -105,6 +120,12 @@ const App: React.FC = () => {
     );
   }, [notes, notesSearch]);
 
+  const filteredFrames = useMemo(() => {
+    const query = framesSearch.trim().toLowerCase();
+    if (!query) return frames;
+    return frames.filter(f => (f.name ?? '').toLowerCase().includes(query));
+  }, [frames, framesSearch]);
+
   const handleCreateNoteAt = (x: number, y: number) => {
     const newNote = createNote();
     const updatedNotes = [newNote, ...notes];
@@ -122,6 +143,23 @@ const App: React.FC = () => {
     if (window.innerWidth < 768) setIsSidebarOpen(false);
   };
 
+  const handleCreateFrame = () => {
+    // Minimal, deterministic placement (can be refined later to use viewport center).
+    const idx = frames.length;
+    const x = 120 + (idx % 3) * 40;
+    const y = 120 + idx * 40;
+    const frame = createFrame(x, y);
+    setFrames(prev => {
+      const next = [...prev, frame];
+      saveFrames(next);
+      return next;
+    });
+
+    setCenterOnFrameRequest({ frameId: frame.id, nonce: Date.now() });
+    setIsFramesDropdownOpen(false);
+    setFramesSearch('');
+  };
+
   useEffect(() => {
     if (!isNotesDropdownOpen) return;
     const onMouseDown = (e: MouseEvent) => {
@@ -135,6 +173,18 @@ const App: React.FC = () => {
   }, [isNotesDropdownOpen]);
 
   useEffect(() => {
+    if (!isFramesDropdownOpen) return;
+    const onMouseDown = (e: MouseEvent) => {
+      const root = framesDropdownRef.current;
+      if (!root) return;
+      if (e.target instanceof Node && root.contains(e.target)) return;
+      setIsFramesDropdownOpen(false);
+    };
+    window.addEventListener('mousedown', onMouseDown);
+    return () => window.removeEventListener('mousedown', onMouseDown);
+  }, [isFramesDropdownOpen]);
+
+  useEffect(() => {
     if (!isNotesDropdownOpen) return;
     // Focus after the dropdown content mounts.
     const id = window.setTimeout(() => {
@@ -143,18 +193,33 @@ const App: React.FC = () => {
     return () => window.clearTimeout(id);
   }, [isNotesDropdownOpen]);
 
+  useEffect(() => {
+    if (!isFramesDropdownOpen) return;
+    const id = window.setTimeout(() => {
+      framesSearchInputRef.current?.focus();
+    }, 0);
+    return () => window.clearTimeout(id);
+  }, [isFramesDropdownOpen]);
+
+  const deleteNoteById = useCallback((id: string) => {
+    if (!window.confirm('Are you sure you want to delete this note?')) return;
+
+    setNotes(prev => {
+      const updatedNotes = prev.filter(n => n.id !== id);
+      deleteNoteFromStorage(id);
+      if (activeNoteId === id) {
+        setActiveNoteId(updatedNotes.length > 0 ? updatedNotes[0].id : null);
+      }
+      return updatedNotes;
+    });
+
+    deleteWhiteboardItemsByNoteId(id);
+    setWhiteboardItems(prev => prev.filter(i => i.noteId !== id));
+  }, [activeNoteId]);
+
   const handleDeleteNote = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (window.confirm('Are you sure you want to delete this note?')) {
-        const updatedNotes = notes.filter(n => n.id !== id);
-        setNotes(updatedNotes);
-        deleteNoteFromStorage(id);
-        deleteWhiteboardItemsByNoteId(id);
-        setWhiteboardItems(prev => prev.filter(i => i.noteId !== id));
-        if (activeNoteId === id) {
-            setActiveNoteId(updatedNotes.length > 0 ? updatedNotes[0].id : null);
-        }
-    }
+    deleteNoteById(id);
   };
 
   const handleUpdateNoteContent = useCallback((noteId: string, content: string) => {
@@ -181,6 +246,28 @@ const App: React.FC = () => {
         }
         return note;
       });
+      return next;
+    });
+  }, []);
+
+  const handleAssignNoteToFrame = useCallback((noteId: string, frameId: string | null) => {
+    setNotes(prevNotes => {
+      const next = prevNotes.map(note => {
+        if (note.id !== noteId) return note;
+        if ((note.frameId ?? null) === frameId) return note;
+        const updated: Note = { ...note, frameId, updatedAt: Date.now() };
+        updateNoteInStorage(updated);
+        return updated;
+      });
+      return next;
+    });
+  }, []);
+
+  const handleUpdateFrame = useCallback((updatedFrame: Frame) => {
+    setFrames(prev => {
+      const idx = prev.findIndex(f => f.id === updatedFrame.id);
+      const next = idx >= 0 ? prev.map(f => (f.id === updatedFrame.id ? updatedFrame : f)) : [...prev, updatedFrame];
+      saveFrames(next);
       return next;
     });
   }, []);
@@ -216,73 +303,127 @@ const App: React.FC = () => {
         
         {/* Top Notes Dropdown */}
         <div className="shrink-0 border-b border-obsidian-border bg-obsidian-sidebar/60 backdrop-blur px-4 py-2 flex items-center justify-between relative z-20">
-          <div className="flex items-center gap-2" ref={notesDropdownRef}>
-            <button
-              onClick={() => setIsNotesDropdownOpen(v => !v)}
-              className="px-3 py-1.5 rounded bg-obsidian-bg hover:bg-obsidian-active text-sm text-obsidian-text border border-obsidian-border"
-              title="Notes"
-            >
-              {activeNote ? activeNote.title : 'Select a note'}
-            </button>
+          <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2" ref={notesDropdownRef}>
+              <button
+                onClick={() => setIsNotesDropdownOpen(v => !v)}
+                className="px-3 py-1.5 rounded bg-obsidian-bg hover:bg-obsidian-active text-sm text-obsidian-text border border-obsidian-border"
+                title="Notes"
+              >
+                {activeNote ? activeNote.title : 'Select a note'}
+              </button>
 
-            {isNotesDropdownOpen && (
-              <div className="absolute top-full left-4 mt-2 w-80 max-w-[calc(100vw-2rem)] bg-obsidian-sidebar border border-obsidian-border rounded-md shadow-xl overflow-hidden z-30">
-                {notes.length === 0 ? (
-                  <div className="p-3 text-sm text-obsidian-muted">No notes yet. Double-click the board to create one.</div>
-                ) : (
-                  <>
-                    <div className="p-2 border-b border-obsidian-border">
-                      <input
-                        ref={notesSearchInputRef}
-                        value={notesSearch}
-                        onChange={(e) => setNotesSearch(e.target.value)}
-                        placeholder="Search notes..."
-                        className="w-full bg-obsidian-bg text-sm text-obsidian-text placeholder-obsidian-muted px-3 py-2 rounded border border-transparent focus:border-obsidian-accent focus:outline-none transition-all"
-                      />
-                    </div>
-                    <ul className="max-h-80 overflow-auto">
-                      {filteredNotes.length === 0 ? (
-                        <li className="p-3 text-sm text-obsidian-muted">No matching notes.</li>
-                      ) : (
-                        filteredNotes.map(note => (
-                          <li key={note.id}>
-                            <div
-                              className={
-                                'w-full px-3 py-2 text-sm flex items-center justify-between gap-3 ' +
-                                (note.id === activeNoteId ? 'bg-obsidian-active text-white' : 'text-obsidian-text hover:bg-obsidian-bg')
-                              }
-                            >
-                              <button
-                                onClick={() => {
-                                  setActiveNoteId(note.id);
-                                  setCenterOnRequest({ noteId: note.id, nonce: Date.now() });
-                                  setIsNotesDropdownOpen(false);
-                                  setNotesSearch('');
-                                }}
-                                className="min-w-0 flex-1 text-left"
-                                title={note.title || 'Untitled'}
+              {isNotesDropdownOpen && (
+                <div className="absolute top-full left-4 mt-2 w-80 max-w-[calc(100vw-2rem)] bg-obsidian-sidebar border border-obsidian-border rounded-md shadow-xl overflow-hidden z-30">
+                  {notes.length === 0 ? (
+                    <div className="p-3 text-sm text-obsidian-muted">No notes yet. Double-click the board to create one.</div>
+                  ) : (
+                    <>
+                      <div className="p-2 border-b border-obsidian-border">
+                        <input
+                          ref={notesSearchInputRef}
+                          value={notesSearch}
+                          onChange={(e) => setNotesSearch(e.target.value)}
+                          placeholder="Search notes..."
+                          className="w-full bg-obsidian-bg text-sm text-obsidian-text placeholder-obsidian-muted px-3 py-2 rounded border border-transparent focus:border-obsidian-accent focus:outline-none transition-all"
+                        />
+                      </div>
+                      <ul className="max-h-80 overflow-auto">
+                        {filteredNotes.length === 0 ? (
+                          <li className="p-3 text-sm text-obsidian-muted">No matching notes.</li>
+                        ) : (
+                          filteredNotes.map(note => (
+                            <li key={note.id}>
+                              <div
+                                className={
+                                  'w-full px-3 py-2 text-sm flex items-center justify-between gap-3 ' +
+                                  (note.id === activeNoteId ? 'bg-obsidian-active text-white' : 'text-obsidian-text hover:bg-obsidian-bg')
+                                }
                               >
-                                <span className="truncate block">{note.title || 'Untitled'}</span>
-                              </button>
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleDeleteNote(note.id, e);
-                                }}
-                                className="shrink-0 text-xs text-obsidian-muted hover:text-red-400"
-                                title="Delete"
-                              >
-                                Delete
-                              </button>
-                            </div>
-                          </li>
-                        ))
-                      )}
-                    </ul>
-                  </>
-                )}
-              </div>
-            )}
+                                <button
+                                  onClick={() => {
+                                    setActiveNoteId(note.id);
+                                    setCenterOnRequest({ noteId: note.id, nonce: Date.now() });
+                                    setIsNotesDropdownOpen(false);
+                                    setNotesSearch('');
+                                  }}
+                                  className="min-w-0 flex-1 text-left"
+                                  title={note.title || 'Untitled'}
+                                >
+                                  <span className="truncate block">{note.title || 'Untitled'}</span>
+                                </button>
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleDeleteNote(note.id, e);
+                                  }}
+                                  className="shrink-0 text-xs text-obsidian-muted hover:text-red-400"
+                                  title="Delete"
+                                >
+                                  Delete
+                                </button>
+                              </div>
+                            </li>
+                          ))
+                        )}
+                      </ul>
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
+
+            <div className="flex items-center gap-2" ref={framesDropdownRef}>
+              <button
+                onClick={() => setIsFramesDropdownOpen(v => !v)}
+                className="px-3 py-1.5 rounded bg-obsidian-bg hover:bg-obsidian-active text-sm text-obsidian-text border border-obsidian-border"
+                title="Frames"
+              >
+                Frames
+              </button>
+
+              {isFramesDropdownOpen && (
+                <div className="absolute top-full left-4 mt-2 w-80 max-w-[calc(100vw-2rem)] bg-obsidian-sidebar border border-obsidian-border rounded-md shadow-xl overflow-hidden z-30">
+                  <div className="p-2 border-b border-obsidian-border flex items-center gap-2">
+                    <input
+                      ref={framesSearchInputRef}
+                      value={framesSearch}
+                      onChange={(e) => setFramesSearch(e.target.value)}
+                      placeholder="Search frames..."
+                      className="flex-1 bg-obsidian-bg text-sm text-obsidian-text placeholder-obsidian-muted px-3 py-2 rounded border border-transparent focus:border-obsidian-accent focus:outline-none transition-all"
+                    />
+                    <button
+                      onClick={handleCreateFrame}
+                      className="px-3 py-2 rounded bg-obsidian-bg hover:bg-obsidian-active text-sm text-obsidian-text border border-obsidian-border"
+                      title="New frame"
+                    >
+                      New
+                    </button>
+                  </div>
+                  <ul className="max-h-80 overflow-auto">
+                    {filteredFrames.length === 0 ? (
+                      <li className="p-3 text-sm text-obsidian-muted">No matching frames.</li>
+                    ) : (
+                      filteredFrames.map(frame => (
+                        <li key={frame.id}>
+                          <button
+                            onClick={() => {
+                              setCenterOnFrameRequest({ frameId: frame.id, nonce: Date.now() });
+                              setIsFramesDropdownOpen(false);
+                              setFramesSearch('');
+                            }}
+                            className="w-full px-3 py-2 text-sm text-left text-obsidian-text hover:bg-obsidian-bg"
+                            title={frame.name || 'Untitled Frame'}
+                          >
+                            <span className="truncate block">{frame.name || 'Untitled Frame'}</span>
+                          </button>
+                        </li>
+                      ))
+                    )}
+                  </ul>
+                </div>
+              )}
+            </div>
           </div>
 
           <div className="text-xs text-obsidian-muted">Double-click the board to create a note</div>
@@ -291,13 +432,18 @@ const App: React.FC = () => {
         <Whiteboard
           notes={notes}
           items={whiteboardItems}
+          frames={frames}
           activeNoteId={activeNoteId}
           onActivateNote={(id) => setActiveNoteId(id)}
           onCreateNoteAt={handleCreateNoteAt}
           onUpdateItem={handleUpdateWhiteboardItem}
           onUpdateNoteContent={handleUpdateNoteContent}
           onUpdateNoteTitle={handleUpdateNoteTitle}
+          onAssignNoteToFrame={handleAssignNoteToFrame}
+          onUpdateFrame={handleUpdateFrame}
+          onDeleteNote={deleteNoteById}
           centerOnRequest={centerOnRequest ?? undefined}
+          centerOnFrameRequest={centerOnFrameRequest ?? undefined}
         />
       </main>
     </div>

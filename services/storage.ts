@@ -1,8 +1,9 @@
-import { Note, WhiteboardItem } from '../types';
+import { Frame, Note, WhiteboardItem } from '../types';
 import { v4 as uuidv4 } from 'uuid';
 
 const STORAGE_KEY = 'obsidian_clone_notes';
 const WHITEBOARD_KEY = 'obsidian_clone_whiteboard_items';
+const FRAMES_KEY = 'obsidian_clone_frames';
 
 export const getNotes = (): Note[] => {
   try {
@@ -28,7 +29,55 @@ export const createNote = (): Note => {
     title: 'Untitled Note',
     content: '# Untitled Note\n\nStart typing here...',
     updatedAt: Date.now(),
+    frameId: null,
   };
+};
+
+export const getFrames = (): Frame[] => {
+  try {
+    const data = localStorage.getItem(FRAMES_KEY);
+    return data ? JSON.parse(data) : [];
+  } catch (e) {
+    console.error('Failed to load frames', e);
+    return [];
+  }
+};
+
+export const saveFrames = (frames: Frame[]) => {
+  try {
+    localStorage.setItem(FRAMES_KEY, JSON.stringify(frames));
+  } catch (e) {
+    console.error('Failed to save frames', e);
+  }
+};
+
+export const createFrame = (x: number, y: number): Frame => {
+  return {
+    id: uuidv4(),
+    name: 'Untitled Frame',
+    x,
+    y,
+    width: 720,
+    height: 520,
+    z: Date.now(),
+    updatedAt: Date.now(),
+  };
+};
+
+export const upsertFrame = (frame: Frame) => {
+  const frames = getFrames();
+  const idx = frames.findIndex(f => f.id === frame.id);
+  if (idx >= 0) {
+    frames[idx] = frame;
+  } else {
+    frames.push(frame);
+  }
+  saveFrames(frames);
+};
+
+export const deleteFrameFromStorage = (id: string) => {
+  const frames = getFrames();
+  saveFrames(frames.filter(f => f.id !== id));
 };
 
 export const updateNoteInStorage = (updatedNote: Note) => {

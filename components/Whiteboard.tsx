@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Note, WhiteboardItem } from '../types';
+import { Frame, Note, WhiteboardItem } from '../types';
 import { Editor } from './Editor';
+import { Trash2 } from 'lucide-react';
 
 type DragState =
   | {
@@ -32,13 +33,18 @@ type ResizeState =
 interface WhiteboardProps {
   notes: Note[];
   items: WhiteboardItem[];
+  frames: Frame[];
   activeNoteId: string | null;
   onActivateNote: (noteId: string | null) => void;
   onCreateNoteAt: (x: number, y: number) => void;
   onUpdateItem: (item: WhiteboardItem) => void;
   onUpdateNoteContent: (noteId: string, content: string) => void;
   onUpdateNoteTitle: (noteId: string, title: string) => void;
+  onAssignNoteToFrame: (noteId: string, frameId: string | null) => void;
+  onUpdateFrame: (frame: Frame) => void;
+  onDeleteNote: (noteId: string) => void;
   centerOnRequest?: { noteId: string; nonce: number };
+  centerOnFrameRequest?: { frameId: string; nonce: number };
 }
 
 type Camera = {
@@ -60,13 +66,18 @@ type PanState =
 export const Whiteboard: React.FC<WhiteboardProps> = ({
   notes,
   items,
+  frames,
   activeNoteId,
   onActivateNote,
   onCreateNoteAt,
   onUpdateItem,
   onUpdateNoteContent,
   onUpdateNoteTitle,
+  onAssignNoteToFrame,
+  onUpdateFrame,
+  onDeleteNote,
   centerOnRequest,
+  centerOnFrameRequest,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const noteById = useMemo(() => new Map(notes.map(n => [n.id, n])), [notes]);
@@ -76,6 +87,11 @@ export const Whiteboard: React.FC<WhiteboardProps> = ({
   useEffect(() => {
     itemsRef.current = items;
   }, [items]);
+
+  const framesRef = useRef<Frame[]>(frames);
+  useEffect(() => {
+    framesRef.current = frames;
+  }, [frames]);
 
   const onUpdateNoteContentRef = useRef(onUpdateNoteContent);
   const onUpdateNoteTitleRef = useRef(onUpdateNoteTitle);
@@ -102,6 +118,8 @@ export const Whiteboard: React.FC<WhiteboardProps> = ({
 
   const [drag, setDrag] = useState<DragState>(null);
   const [resize, setResize] = useState<ResizeState>(null);
+  const [frameDrag, setFrameDrag] = useState<DragState>(null);
+  const [frameResize, setFrameResize] = useState<ResizeState>(null);
   const [isSpaceDown, setIsSpaceDown] = useState(false);
   const [pan, setPan] = useState<PanState>(null);
 
@@ -153,6 +171,23 @@ export const Whiteboard: React.FC<WhiteboardProps> = ({
     return items.reduce((acc, item) => (item.z > acc ? item.z : acc), items[0].z);
   }, [items]);
 
+  const maxFrameZ = useMemo(() => {
+    if (frames.length === 0) return 0;
+    return frames.reduce((acc, f) => (f.z > acc ? f.z : acc), frames[0].z);
+  }, [frames]);
+
+  const findContainingFrameIdForItem = (item: WhiteboardItem): string | null => {
+    const cx = item.x + item.width / 2;
+    const cy = item.y + item.height / 2;
+    const candidates = framesRef.current
+      .filter(f => cx >= f.x && cx <= f.x + f.width && cy >= f.y && cy <= f.y + f.height)
+      .map(f => ({ id: f.id, area: f.width * f.height }));
+    if (candidates.length === 0) return null;
+    // If multiple frames overlap, choose the smallest (most specific).
+    candidates.sort((a, b) => a.area - b.area);
+    return candidates[0].id;
+  };
+
   useEffect(() => {
     if (!drag) return;
 
@@ -179,6 +214,13 @@ export const Whiteboard: React.FC<WhiteboardProps> = ({
     const handlePointerUp = (e: PointerEvent) => {
       if (!drag) return;
       if (e.pointerId !== drag.pointerId) return;
+
+      const item = itemsRef.current.find(i => i.id === drag.itemId);
+      if (item) {
+        const nextFrameId = findContainingFrameIdForItem(item);
+        onAssignNoteToFrame(item.noteId, nextFrameId);
+      }
+
       setDrag(null);
     };
 
@@ -192,6 +234,47 @@ export const Whiteboard: React.FC<WhiteboardProps> = ({
       window.removeEventListener('pointercancel', handlePointerUp);
     };
   }, [drag, onUpdateItem]);
+
+  useEffect(() => {
+    if (!frameDrag) return;
+
+    const handlePointerMove = (e: PointerEvent) => {
+      if (!frameDrag) return;
+      if (e.pointerId !== frameDrag.pointerId) return;
+
+      const dx = e.clientX - frameDrag.startPointerX;
+      const dy = e.clientY - frameDrag.startPointerY;
+      const scale = cameraRef.current.scale;
+      const dxWorld = dx / scale;
+      const dyWorld = dy / scale;
+
+      const frame = framesRef.current.find(f => f.id === frameDrag.itemId);
+      if (!frame) return;
+
+      onUpdateFrame({
+        ...frame,
+        x: frameDrag.startX + dxWorld,
+        y: frameDrag.startY + dyWorld,
+        updatedAt: Date.now(),
+      });
+    };
+
+    const handlePointerUp = (e: PointerEvent) => {
+      if (!frameDrag) return;
+      if (e.pointerId !== frameDrag.pointerId) return;
+      setFrameDrag(null);
+    };
+
+    window.addEventListener('pointermove', handlePointerMove);
+    window.addEventListener('pointerup', handlePointerUp);
+    window.addEventListener('pointercancel', handlePointerUp);
+
+    return () => {
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerup', handlePointerUp);
+      window.removeEventListener('pointercancel', handlePointerUp);
+    };
+  }, [frameDrag, onUpdateFrame]);
 
   useEffect(() => {
     if (!resize) return;
@@ -263,6 +346,78 @@ export const Whiteboard: React.FC<WhiteboardProps> = ({
       window.removeEventListener('pointercancel', handlePointerUp);
     };
   }, [resize, onUpdateItem]);
+
+  useEffect(() => {
+    if (!frameResize) return;
+
+    const handlePointerMove = (e: PointerEvent) => {
+      if (!frameResize) return;
+      if (e.pointerId !== frameResize.pointerId) return;
+
+      const dx = e.clientX - frameResize.startPointerX;
+      const dy = e.clientY - frameResize.startPointerY;
+      const scale = cameraRef.current.scale;
+      const dxWorld = dx / scale;
+      const dyWorld = dy / scale;
+
+      const frame = framesRef.current.find(f => f.id === frameResize.itemId);
+      if (!frame) return;
+
+      let nextX = frameResize.startX;
+      let nextY = frameResize.startY;
+      let nextW = frameResize.startW;
+      let nextH = frameResize.startH;
+
+      const dir = frameResize.dir;
+
+      if (dir.includes('e')) {
+        nextW = Math.max(MIN_W, frameResize.startW + dxWorld);
+      }
+
+      if (dir.includes('s')) {
+        nextH = Math.max(MIN_H, frameResize.startH + dyWorld);
+      }
+
+      if (dir.includes('w')) {
+        const rawW = frameResize.startW - dxWorld;
+        nextW = Math.max(MIN_W, rawW);
+        const appliedDx = frameResize.startW - nextW;
+        nextX = frameResize.startX + appliedDx;
+      }
+
+      if (dir.includes('n')) {
+        const rawH = frameResize.startH - dyWorld;
+        nextH = Math.max(MIN_H, rawH);
+        const appliedDy = frameResize.startH - nextH;
+        nextY = frameResize.startY + appliedDy;
+      }
+
+      onUpdateFrame({
+        ...frame,
+        x: nextX,
+        y: nextY,
+        width: nextW,
+        height: nextH,
+        updatedAt: Date.now(),
+      });
+    };
+
+    const handlePointerUp = (e: PointerEvent) => {
+      if (!frameResize) return;
+      if (e.pointerId !== frameResize.pointerId) return;
+      setFrameResize(null);
+    };
+
+    window.addEventListener('pointermove', handlePointerMove);
+    window.addEventListener('pointerup', handlePointerUp);
+    window.addEventListener('pointercancel', handlePointerUp);
+
+    return () => {
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerup', handlePointerUp);
+      window.removeEventListener('pointercancel', handlePointerUp);
+    };
+  }, [frameResize, onUpdateFrame]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -375,17 +530,44 @@ export const Whiteboard: React.FC<WhiteboardProps> = ({
     applyCamera({ ...prev, tx: nextTx, ty: nextTy });
   }, [centerOnRequest?.nonce]);
 
+  useEffect(() => {
+    if (!centerOnFrameRequest) return;
+    const el = containerRef.current;
+    if (!el) return;
+
+    const frame = frames.find(f => f.id === centerOnFrameRequest.frameId);
+    if (!frame) return;
+
+    const rect = el.getBoundingClientRect();
+    const viewportW = rect.width;
+    const viewportH = rect.height;
+
+    const worldCenterX = frame.x + frame.width / 2;
+    const worldCenterY = frame.y + frame.height / 2;
+
+    const prev = cameraRef.current;
+    const nextTx = viewportW / 2 - worldCenterX * prev.scale;
+    const nextTy = viewportH / 2 - worldCenterY * prev.scale;
+    applyCamera({ ...prev, tx: nextTx, ty: nextTy });
+  }, [centerOnFrameRequest?.nonce]);
+
   const bumpToFront = (item: WhiteboardItem) => {
     const nextZ = maxZ + 1;
     if (item.z === nextZ) return;
     onUpdateItem({ ...item, z: nextZ });
   };
 
+  const bumpFrameToFront = (frame: Frame) => {
+    const nextZ = maxFrameZ + 1;
+    if (frame.z === nextZ) return;
+    onUpdateFrame({ ...frame, z: nextZ, updatedAt: Date.now() });
+  };
+
   const handleCanvasDoubleClick = (e: React.MouseEvent) => {
     // Only create a new note when double-clicking the canvas background.
     // Double-clicks inside an existing note (e.g., text selection) should not create notes.
     const target = e.target as HTMLElement | null;
-    if (target && target.closest('[data-whiteboard-note="true"]')) {
+    if (target && (target.closest('[data-whiteboard-note="true"]') || target.closest('[data-whiteboard-frame="true"]'))) {
       return;
     }
 
@@ -414,7 +596,7 @@ export const Whiteboard: React.FC<WhiteboardProps> = ({
         onPointerDown={(e) => {
           if (!isSpaceDown) return;
           const target = e.target as HTMLElement | null;
-          if (target && target.closest('[data-whiteboard-note="true"]')) {
+          if (target && (target.closest('[data-whiteboard-note="true"]') || target.closest('[data-whiteboard-frame="true"]'))) {
             return;
           }
           e.preventDefault();
@@ -430,7 +612,7 @@ export const Whiteboard: React.FC<WhiteboardProps> = ({
         }}
         onClick={(e) => {
           const target = e.target as HTMLElement | null;
-          if (target && target.closest('[data-whiteboard-note="true"]')) {
+          if (target && (target.closest('[data-whiteboard-note="true"]') || target.closest('[data-whiteboard-frame="true"]'))) {
             return;
           }
           onActivateNote(null);
@@ -452,6 +634,119 @@ export const Whiteboard: React.FC<WhiteboardProps> = ({
             ['--wb-scale' as any]: String(cameraRef.current.scale),
           }}
         >
+          {/* Frames (rendered behind notes) */}
+          {frames
+            .slice()
+            .sort((a, b) => a.z - b.z)
+            .map(frame => {
+              const edge = 'min(24px, calc(6px / var(--wb-scale)))';
+              const corner = 'min(32px, calc(10px / var(--wb-scale)))';
+              const inset = 'min(48px, calc(10px / var(--wb-scale)))';
+
+              return (
+                <div
+                  key={frame.id}
+                  data-whiteboard-frame="true"
+                  className="absolute rounded-md border border-obsidian-border pointer-events-none"
+                  style={{
+                    left: frame.x,
+                    top: frame.y,
+                    width: frame.width,
+                    height: frame.height,
+                    // Keep frame UI (header/handles) above notes so rename is always possible.
+                    // The container is pointer-events:none so it won't block interacting with notes.
+                    zIndex: frame.z + 2000000,
+                    backgroundColor: 'transparent',
+                  }}
+                  onPointerDown={() => {
+                    bumpFrameToFront(frame);
+                  }}
+                >
+                  {/* Resize handles */}
+                  {(
+                    [
+                      { dir: 'n' as const, style: { left: inset, right: inset, top: 0, height: edge }, cursor: 'n-resize' },
+                      { dir: 's' as const, style: { left: inset, right: inset, bottom: 0, height: edge }, cursor: 's-resize' },
+                      { dir: 'w' as const, style: { top: inset, bottom: inset, left: 0, width: edge }, cursor: 'w-resize' },
+                      { dir: 'e' as const, style: { top: inset, bottom: inset, right: 0, width: edge }, cursor: 'e-resize' },
+                      { dir: 'nw' as const, style: { left: 0, top: 0, width: corner, height: corner }, cursor: 'nwse-resize' },
+                      { dir: 'ne' as const, style: { right: 0, top: 0, width: corner, height: corner }, cursor: 'nesw-resize' },
+                      { dir: 'sw' as const, style: { left: 0, bottom: 0, width: corner, height: corner }, cursor: 'nesw-resize' },
+                      { dir: 'se' as const, style: { right: 0, bottom: 0, width: corner, height: corner }, cursor: 'nwse-resize' },
+                    ]
+                  ).map(h => (
+                    <div
+                      key={h.dir}
+                      className="absolute z-10 pointer-events-auto"
+                      style={{ ...h.style, cursor: h.cursor }}
+                      onPointerDown={(e) => {
+                        e.stopPropagation();
+                        bumpFrameToFront(frame);
+                        setFrameResize({
+                          itemId: frame.id,
+                          pointerId: e.pointerId,
+                          dir: h.dir,
+                          startPointerX: e.clientX,
+                          startPointerY: e.clientY,
+                          startX: frame.x,
+                          startY: frame.y,
+                          startW: frame.width,
+                          startH: frame.height,
+                        });
+                        (e.currentTarget as HTMLDivElement).setPointerCapture(e.pointerId);
+                      }}
+                    />
+                  ))}
+
+                  <div
+                    data-whiteboard-frame="true"
+                    className="h-10 px-3 flex items-center justify-between bg-obsidian-sidebar/60 pointer-events-auto"
+                    onPointerDown={(e) => {
+                      // Allow input focus without dragging
+                      const target = e.target as HTMLElement | null;
+                      if (target && (target.tagName?.toLowerCase() === 'input' || target.closest('input'))) {
+                        e.stopPropagation();
+                        return;
+                      }
+
+                      e.stopPropagation();
+                      bumpFrameToFront(frame);
+                      setFrameDrag({
+                        itemId: frame.id,
+                        pointerId: e.pointerId,
+                        startPointerX: e.clientX,
+                        startPointerY: e.clientY,
+                        startX: frame.x,
+                        startY: frame.y,
+                      });
+                      (e.currentTarget as HTMLDivElement).setPointerCapture(e.pointerId);
+                    }}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                    }}
+                    style={{ cursor: 'move' }}
+                  >
+                    <input
+                      value={frame.name}
+                      onChange={(e) => {
+                        onUpdateFrame({ ...frame, name: e.target.value, updatedAt: Date.now() });
+                      }}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                      }}
+                      className="min-w-0 flex-1 bg-transparent text-sm font-medium text-obsidian-text outline-none select-text"
+                      placeholder="Untitled Frame"
+                      title={frame.name || 'Untitled Frame'}
+                    />
+                    <div className="w-2 h-2 rounded-full bg-obsidian-accent" />
+                  </div>
+
+                  {/* Transparent interior (keeps notes visible) */}
+                  <div className="h-[calc(100%-2.5rem)]" />
+                </div>
+              );
+            })}
+
           {items
             .slice()
             .sort((a, b) => a.z - b.z)
@@ -478,7 +773,7 @@ export const Whiteboard: React.FC<WhiteboardProps> = ({
                     top: item.y,
                     width: item.width,
                     height: item.height,
-                    zIndex: item.z,
+                    zIndex: item.z + 1000000,
                     backgroundColor: 'transparent',
                   }}
                   onPointerDown={() => {
@@ -532,6 +827,13 @@ export const Whiteboard: React.FC<WhiteboardProps> = ({
                     }
                     onPointerDown={(e) => {
                       e.stopPropagation();
+
+                      // Don't start dragging if the delete button was pressed.
+                      const target = e.target as HTMLElement | null;
+                      if (target && target.closest('[data-note-delete="true"]')) {
+                        return;
+                      }
+
                       onActivateNote(note.id);
                       bumpToFront(item);
 
@@ -552,7 +854,24 @@ export const Whiteboard: React.FC<WhiteboardProps> = ({
                         {note.title || 'Untitled'}
                       </span>
                     </div>
-                    <div className="w-2 h-2 rounded-full bg-obsidian-accent" />
+                    <div className="flex items-center gap-2">
+                      <button
+                        data-note-delete="true"
+                        type="button"
+                        className="shrink-0 text-obsidian-muted hover:text-red-400"
+                        title="Delete note"
+                        onPointerDown={(e) => {
+                          e.stopPropagation();
+                        }}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onDeleteNote(note.id);
+                        }}
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                      <div className="w-2 h-2 rounded-full bg-obsidian-accent" />
+                    </div>
                   </div>
 
                   <div className="h-[calc(100%-2.5rem)] bg-obsidian-bg">

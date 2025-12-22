@@ -3,6 +3,18 @@ export interface Note {
   title: string;
   content: string;
   updatedAt: number;
+  frameId?: string | null;
+}
+
+export interface Frame {
+  id: string;
+  name: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  z: number;
+  updatedAt: number;
 }
 
 export interface WhiteboardItem {
