@@ -3,7 +3,8 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Frame, Note, WhiteboardItem } from '@/shared/types';
 import { Editor } from '@/features/editor/components/Editor';
-import { Trash2 } from 'lucide-react';
+import { Sparkles, Trash2 } from 'lucide-react';
+import { generateCompletion } from '@/features/ai/services/geminiService';
 
 type DragState = {
   itemId: string;
@@ -34,6 +35,7 @@ interface WhiteboardProps {
   frames: Frame[];
   activeNoteId: string | null;
   onActivateNote: (noteId: string | null) => void;
+  onJumpToNote: (noteId: string) => void;
   onCreateNoteAt: (x: number, y: number) => void;
   onUpdateItem: (item: WhiteboardItem) => void;
   onUpdateNoteContent: (noteId: string, content: string) => void;
@@ -65,6 +67,7 @@ export const Whiteboard: React.FC<WhiteboardProps> = ({
   frames,
   activeNoteId,
   onActivateNote,
+  onJumpToNote,
   onCreateNoteAt,
   onUpdateItem,
   onUpdateNoteContent,
@@ -118,6 +121,72 @@ export const Whiteboard: React.FC<WhiteboardProps> = ({
   const [frameResize, setFrameResize] = useState<ResizeState>(null);
   const [isSpaceDown, setIsSpaceDown] = useState(false);
   const [pan, setPan] = useState<PanState>(null);
+
+  const [aiLoadingNoteId, setAiLoadingNoteId] = useState<string | null>(null);
+  const [aiErrorNoteId, setAiErrorNoteId] = useState<string | null>(null);
+  const noteOrderById = useMemo(() => {
+    const map = new Map<string, number>();
+    notes.forEach((n, idx) => map.set(n.id, idx + 1));
+    return map;
+  }, [notes]);
+
+  const navigableNotes = useMemo(() => {
+    const noteIdsWithItems = new Set(items.map((i) => i.noteId));
+    // Use current notes array order; skip notes without items.
+    return notes.filter((n) => noteIdsWithItems.has(n.id));
+  }, [notes, items]);
+
+  const activeNavigableIndex = useMemo(() => {
+    if (!activeNoteId) return -1;
+    return navigableNotes.findIndex((n) => n.id === activeNoteId);
+  }, [navigableNotes, activeNoteId]);
+
+  const prevTarget = useMemo(() => {
+    if (navigableNotes.length === 0) return null;
+    if (activeNavigableIndex >= 0) {
+      return activeNavigableIndex > 0 ? navigableNotes[activeNavigableIndex - 1] : null;
+    }
+    return navigableNotes[navigableNotes.length - 1];
+  }, [navigableNotes, activeNavigableIndex]);
+
+  const nextTarget = useMemo(() => {
+    if (navigableNotes.length === 0) return null;
+    if (activeNavigableIndex >= 0) {
+      return activeNavigableIndex < navigableNotes.length - 1
+        ? navigableNotes[activeNavigableIndex + 1]
+        : null;
+    }
+    return navigableNotes[0];
+  }, [navigableNotes, activeNavigableIndex]);
+
+  const handleAiActionForNote = async (
+    note: Note,
+    type: 'continue' | 'summarize' | 'improve'
+  ) => {
+    const content = note.content ?? '';
+    if (!content.trim()) return;
+
+    setAiErrorNoteId(null);
+    setAiLoadingNoteId(note.id);
+    try {
+      const result = await generateCompletion(content, content, type);
+      const handler = noteContentChangeHandlers[note.id];
+      if (!handler) return;
+
+      if (type === 'continue') {
+        const next = content + (content.endsWith(' ') ? '' : ' ') + result;
+        handler(next);
+      } else if (type === 'summarize') {
+        handler(content + `\n\n### AI Summary\n${result}`);
+      } else {
+        handler(result);
+      }
+    } catch {
+      setAiErrorNoteId(note.id);
+    } finally {
+      setAiLoadingNoteId((v) => (v === note.id ? null : v));
+    }
+  };
 
   const cameraRef = useRef<Camera>({ tx: 0, ty: 0, scale: 1 });
   const applyRafIdRef = useRef<number | null>(null);
@@ -585,7 +654,7 @@ export const Whiteboard: React.FC<WhiteboardProps> = ({
   };
 
   return (
-    <div className="flex-1 h-full overflow-hidden">
+    <div className="flex-1 h-full overflow-hidden relative">
       <div
         ref={containerRef}
         className={
@@ -775,7 +844,7 @@ export const Whiteboard: React.FC<WhiteboardProps> = ({
                       onClick={(e) => {
                         e.stopPropagation();
                       }}
-                      className="min-w-0 flex-1 bg-transparent text-sm font-medium text-obsidian-text outline-none select-text"
+                      className="min-w-0 w-56 max-w-[65%] bg-transparent text-sm font-medium text-obsidian-text outline-none select-text"
                       placeholder="Untitled Frame"
                       title={frame.name || 'Untitled Frame'}
                     />
@@ -905,6 +974,14 @@ export const Whiteboard: React.FC<WhiteboardProps> = ({
                         return;
                       }
 
+                      if (target && target.closest('[data-note-ai="true"]')) {
+                        return;
+                      }
+
+                      // Allow title editing without dragging.
+                      if (target && (target.tagName?.toLowerCase() === 'input' || target.closest('input')))
+                        return;
+
                       onActivateNote(note.id);
                       bumpToFront(item);
 
@@ -920,12 +997,90 @@ export const Whiteboard: React.FC<WhiteboardProps> = ({
                     }}
                     style={{ cursor: 'move' }}
                   >
-                    <div className="min-w-0">
-                      <span className="text-sm font-medium text-obsidian-text truncate block">
-                        {note.title || 'Untitled'}
+                    <div className="flex items-center gap-2 min-w-0 w-56 max-w-[65%]">
+                      <span
+                        className="shrink-0 h-6 min-w-6 px-2 rounded-full border border-obsidian-border bg-obsidian-bg text-xs text-obsidian-text"
+                        title="Note order"
+                      >
+                        {noteOrderById.get(note.id) ?? 0}
                       </span>
+
+                      <input
+                        value={note.title}
+                        onChange={(e) => noteTitleChangeHandlers[note.id]?.(e.target.value)}
+                        onPointerDown={(e) => {
+                          e.stopPropagation();
+                        }}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                        }}
+                        className="min-w-0 flex-1 bg-transparent text-sm font-medium text-obsidian-text outline-none select-text"
+                        placeholder="Untitled"
+                        title={note.title || 'Untitled'}
+                        aria-label="Note title"
+                      />
                     </div>
                     <div className="flex items-center gap-2">
+                      <div className="relative group" data-note-ai="true">
+                        <button
+                          type="button"
+                          className="shrink-0 p-1 rounded text-obsidian-muted hover:text-obsidian-accent hover:bg-black/10"
+                          title="AI Assistant"
+                          onPointerDown={(e) => e.stopPropagation()}
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <Sparkles size={16} />
+                        </button>
+                        <div className="absolute right-0 mt-2 w-48 bg-obsidian-sidebar border border-obsidian-border rounded-md shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-50 transform origin-top-right">
+                          <div className="py-1">
+                            <button
+                              type="button"
+                              onPointerDown={(e) => e.stopPropagation()}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleAiActionForNote(note, 'continue');
+                              }}
+                              className="block w-full text-left px-4 py-2 text-sm text-obsidian-text hover:bg-obsidian-accent hover:text-obsidian-strong"
+                            >
+                              Continue Writing
+                            </button>
+                            <button
+                              type="button"
+                              onPointerDown={(e) => e.stopPropagation()}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleAiActionForNote(note, 'summarize');
+                              }}
+                              className="block w-full text-left px-4 py-2 text-sm text-obsidian-text hover:bg-obsidian-accent hover:text-obsidian-strong"
+                            >
+                              Summarize Note
+                            </button>
+                            <button
+                              type="button"
+                              onPointerDown={(e) => e.stopPropagation()}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleAiActionForNote(note, 'improve');
+                              }}
+                              className="block w-full text-left px-4 py-2 text-sm text-obsidian-text hover:bg-obsidian-accent hover:text-obsidian-strong"
+                            >
+                              Fix Grammar & Tone
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+
+                      {aiLoadingNoteId === note.id && (
+                        <span className="text-xs text-obsidian-accent" title="AI is working">
+                          Thinking...
+                        </span>
+                      )}
+                      {aiErrorNoteId === note.id && (
+                        <span className="text-xs text-red-400" title="AI request failed">
+                          Failed
+                        </span>
+                      )}
+
                       <button
                         data-note-delete="true"
                         type="button"
@@ -961,6 +1116,35 @@ export const Whiteboard: React.FC<WhiteboardProps> = ({
                 </div>
               );
             })}
+        </div>
+      </div>
+
+      <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-40 pointer-events-none">
+        <div className="pointer-events-auto flex items-center gap-2 rounded-md border border-obsidian-border bg-obsidian-sidebar/80 backdrop-blur px-2 py-2">
+          <button
+            type="button"
+            onClick={() => {
+              if (!prevTarget) return;
+              onJumpToNote(prevTarget.id);
+            }}
+            disabled={!prevTarget}
+            className="px-3 py-1.5 rounded bg-obsidian-bg hover:bg-obsidian-active text-sm text-obsidian-text border border-obsidian-border disabled:opacity-50 disabled:cursor-not-allowed"
+            title="Previous numbered note"
+          >
+            Prev
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              if (!nextTarget) return;
+              onJumpToNote(nextTarget.id);
+            }}
+            disabled={!nextTarget}
+            className="px-3 py-1.5 rounded bg-obsidian-bg hover:bg-obsidian-active text-sm text-obsidian-text border border-obsidian-border disabled:opacity-50 disabled:cursor-not-allowed"
+            title="Next numbered note"
+          >
+            Next
+          </button>
         </div>
       </div>
     </div>

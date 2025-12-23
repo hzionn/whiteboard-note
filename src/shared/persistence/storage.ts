@@ -67,6 +67,16 @@ export const createBoard = (name?: string): WhiteboardBoard => {
   };
 };
 
+export const renameBoard = (boardId: string, name: string): WhiteboardBoard[] => {
+  const nextName = name.trim() ? name.trim() : 'Untitled Whiteboard';
+  const boards = getBoards();
+  const nextBoards = boards.map((b) =>
+    b.id === boardId ? { ...b, name: nextName, updatedAt: Date.now() } : b
+  );
+  saveBoards(nextBoards);
+  return nextBoards;
+};
+
 export const ensureBoardsInitialized = (opts?: {
   defaultBoardName?: string;
 }): { boards: WhiteboardBoard[]; activeBoardId: string } => {
@@ -153,6 +163,7 @@ export const createNote = (): Note => {
     title: 'Untitled Note',
     content: '# Untitled Note\n\nStart typing here...',
     updatedAt: Date.now(),
+    number: null,
     frameId: null,
   };
 };

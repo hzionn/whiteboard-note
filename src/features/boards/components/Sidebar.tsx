@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { Menu, Plus, Trash2 } from 'lucide-react';
+import { Check, Pencil, Plus, Trash2, X } from 'lucide-react';
 import { WhiteboardBoard } from '@/shared/types';
 
 interface SidebarProps {
@@ -12,6 +12,7 @@ interface SidebarProps {
   onCreateBoard: () => void;
   onSelectBoard: (boardId: string) => void;
   onDeleteBoard: (boardId: string) => void;
+  onRenameBoard: (boardId: string, name: string) => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -22,24 +23,44 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onCreateBoard,
   onSelectBoard,
   onDeleteBoard,
+  onRenameBoard,
 }) => {
+  const [editingBoardId, setEditingBoardId] = React.useState<string | null>(null);
+  const [draftName, setDraftName] = React.useState('');
+  const inputRef = React.useRef<HTMLInputElement>(null);
+
+  React.useEffect(() => {
+    if (!editingBoardId) return;
+    const id = window.setTimeout(() => inputRef.current?.focus(), 0);
+    return () => window.clearTimeout(id);
+  }, [editingBoardId]);
+
+  const beginRename = (board: WhiteboardBoard) => {
+    setEditingBoardId(board.id);
+    setDraftName(board.name || '');
+  };
+
+  const cancelRename = () => {
+    setEditingBoardId(null);
+    setDraftName('');
+  };
+
+  const commitRename = () => {
+    if (!editingBoardId) return;
+    onRenameBoard(editingBoardId, draftName);
+    setEditingBoardId(null);
+    setDraftName('');
+  };
+
+  if (!isOpen) return null;
+
   return (
     <>
-      {/* Mobile Toggle Button (fixed when sidebar is closed) */}
-      {!isOpen && (
-        <button
-          onClick={onToggle}
-          className="fixed top-4 left-4 z-50 p-2 bg-obsidian-border rounded-md text-obsidian-text hover:text-white md:hidden"
-        >
-          <Menu size={20} />
-        </button>
-      )}
-
       <div
         className={`
       fixed inset-y-0 left-0 z-40 w-72 bg-obsidian-sidebar border-r border-obsidian-border transform transition-transform duration-300 ease-in-out
       ${isOpen ? 'translate-x-0' : '-translate-x-full'}
-      md:relative md:translate-x-0 flex flex-col
+      md:relative flex flex-col
     `}
       >
         <div className="p-4 border-b border-obsidian-border flex items-center justify-between">
@@ -49,7 +70,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </h1>
           <button
             onClick={onToggle}
-            className="md:hidden text-xs text-obsidian-muted hover:text-white"
+            className="md:hidden text-xs text-obsidian-muted hover:text-obsidian-text"
           >
             Close
           </button>
@@ -77,17 +98,77 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     className={
                       'w-full px-3 py-2 rounded text-sm border border-transparent flex items-center gap-2 ' +
                       (b.id === activeBoardId
-                        ? 'bg-obsidian-active text-white border-obsidian-border'
+                        ? 'bg-obsidian-active text-obsidian-text border-obsidian-border'
                         : 'text-obsidian-text hover:bg-obsidian-bg')
                     }
                   >
-                    <button
-                      onClick={() => onSelectBoard(b.id)}
-                      className="min-w-0 flex-1 text-left"
-                      title={b.name}
-                    >
-                      <span className="truncate block">{b.name || 'Untitled Whiteboard'}</span>
-                    </button>
+                    {editingBoardId === b.id ? (
+                      <div className="min-w-0 flex-1 flex items-center gap-2">
+                        <input
+                          ref={inputRef}
+                          value={draftName}
+                          onChange={(e) => setDraftName(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') commitRename();
+                            if (e.key === 'Escape') cancelRename();
+                          }}
+                          onBlur={commitRename}
+                          className="min-w-0 flex-1 bg-obsidian-bg text-sm text-obsidian-text px-2 py-1 rounded border border-obsidian-border focus:border-obsidian-accent focus:outline-none"
+                          aria-label="Rename whiteboard"
+                        />
+                        <button
+                          onMouseDown={(e) => e.preventDefault()}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            commitRename();
+                          }}
+                          className="shrink-0 p-1 rounded hover:bg-black/10 text-obsidian-muted hover:text-obsidian-text"
+                          title="Save"
+                          aria-label="Save rename"
+                        >
+                          <Check size={14} />
+                        </button>
+                        <button
+                          onMouseDown={(e) => e.preventDefault()}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            cancelRename();
+                          }}
+                          className="shrink-0 p-1 rounded hover:bg-black/10 text-obsidian-muted hover:text-obsidian-text"
+                          title="Cancel"
+                          aria-label="Cancel rename"
+                        >
+                          <X size={14} />
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        onClick={() => onSelectBoard(b.id)}
+                        className="min-w-0 flex-1 text-left"
+                        title={b.name}
+                      >
+                        <span className="truncate block">{b.name || 'Untitled Whiteboard'}</span>
+                      </button>
+                    )}
+
+                    {editingBoardId !== b.id && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          beginRename(b);
+                        }}
+                        className={
+                          'shrink-0 p-1 rounded hover:bg-black/10 ' +
+                          (b.id === activeBoardId
+                            ? 'text-obsidian-text/80 hover:text-obsidian-text'
+                            : 'text-obsidian-muted hover:text-obsidian-text')
+                        }
+                        title="Rename whiteboard"
+                        aria-label={`Rename ${b.name || 'whiteboard'}`}
+                      >
+                        <Pencil size={14} />
+                      </button>
+                    )}
 
                     <button
                       onClick={(e) => {
@@ -97,7 +178,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       className={
                         'shrink-0 p-1 rounded hover:bg-black/10 ' +
                         (b.id === activeBoardId
-                          ? 'text-white/80 hover:text-red-200'
+                          ? 'text-obsidian-text/80 hover:text-red-200'
                           : 'text-obsidian-muted hover:text-red-400')
                       }
                       title="Delete whiteboard"

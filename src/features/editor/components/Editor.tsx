@@ -127,7 +127,7 @@ interface EditorProps {
 }
 
 // Comprehensive Theme for whiteboard-note-like styling
-const markdownTheme = HighlightStyle.define([
+const markdownThemeDark = HighlightStyle.define([
   // Headings
   {
     tag: tags.heading1,
@@ -197,6 +197,78 @@ const markdownTheme = HighlightStyle.define([
 
   // Default Text
   { tag: tags.content, color: '#dcddde' },
+]);
+
+const markdownThemeLight = HighlightStyle.define([
+  // Headings
+  {
+    tag: tags.heading1,
+    fontSize: '2.2em',
+    fontWeight: '700',
+    color: 'rgb(var(--obsidian-strong))',
+    lineHeight: '1.2',
+    marginTop: '1em',
+    marginBottom: '0.5em',
+  },
+  {
+    tag: tags.heading2,
+    fontSize: '1.8em',
+    fontWeight: '600',
+    color: 'rgb(var(--obsidian-strong))',
+    marginTop: '1em',
+    marginBottom: '0.5em',
+  },
+  {
+    tag: tags.heading3,
+    fontSize: '1.5em',
+    fontWeight: '600',
+    color: 'rgb(var(--obsidian-strong))',
+    marginTop: '0.8em',
+  },
+  { tag: tags.heading4, fontSize: '1.25em', fontWeight: '600', color: 'rgb(var(--obsidian-text))' },
+  { tag: tags.heading5, fontSize: '1.1em', fontWeight: '600', color: 'rgb(var(--obsidian-text))' },
+  { tag: tags.heading6, fontSize: '1em', fontWeight: '600', color: 'rgb(var(--obsidian-text))' },
+
+  // Inline Formatting
+  { tag: tags.strong, fontWeight: '700', color: 'rgb(var(--obsidian-strong))' },
+  { tag: tags.emphasis, fontStyle: 'italic', color: 'rgb(var(--obsidian-text))' },
+  { tag: tags.strikethrough, textDecoration: 'line-through', color: 'rgb(var(--obsidian-muted))' },
+  { tag: tags.quote, fontStyle: 'italic', color: 'rgb(var(--obsidian-muted))' },
+  { tag: tags.link, color: 'rgb(var(--obsidian-accent))', textDecoration: 'underline' },
+  { tag: tags.url, color: 'rgb(var(--obsidian-muted))', textDecoration: 'none' },
+  { tag: tags.list, color: 'rgb(var(--obsidian-accent))' },
+
+  // Inline Code (Monospace)
+  {
+    tag: tags.monospace,
+    fontFamily: "'JetBrains Mono', monospace",
+    color: 'rgb(var(--obsidian-text))',
+    backgroundColor: 'rgb(var(--obsidian-active))',
+    borderRadius: '4px',
+    padding: '1px 4px',
+  },
+
+  // Code Syntax Highlighting (keep existing palette)
+  { tag: tags.keyword, color: '#ff79c6' },
+  { tag: tags.operator, color: '#ff79c6' },
+  { tag: tags.atom, color: '#bd93f9' },
+  { tag: tags.number, color: '#bd93f9' },
+  { tag: tags.bool, color: '#bd93f9' },
+  { tag: tags.definition(tags.variableName), color: 'rgb(var(--obsidian-text))' },
+  { tag: tags.variableName, color: 'rgb(var(--obsidian-text))' },
+  { tag: tags.string, color: '#b08900' },
+  { tag: tags.special(tags.string), color: '#b08900' },
+  { tag: tags.comment, color: 'rgb(var(--obsidian-muted))', fontStyle: 'italic' },
+  { tag: tags.typeName, color: '#0ea5e9' },
+  { tag: tags.className, color: '#0ea5e9' },
+  { tag: tags.propertyName, color: 'rgb(var(--obsidian-text))' },
+  { tag: tags.tagName, color: '#ff79c6' },
+  { tag: tags.attributeName, color: '#16a34a' },
+  { tag: tags.meta, color: 'rgb(var(--obsidian-muted))' },
+  { tag: tags.bracket, color: 'rgb(var(--obsidian-text))' },
+
+  // Default Text
+  { tag: tags.content, color: 'rgb(var(--obsidian-text))' },
 ]);
 
 // Checkbox Widget for rendering task lists
@@ -528,17 +600,34 @@ const livePreviewPlugin = ViewPlugin.fromClass(
 
 export const Editor: React.FC<EditorProps> = React.memo(
   ({ content, onChange, title, onTitleChange, variant = 'full' }) => {
+    const showTitleInput = variant !== 'embedded';
+    const [appTheme, setAppTheme] = useState<'dark' | 'light'>(() => {
+      if (typeof document === 'undefined') return 'dark';
+      return document.documentElement.dataset.theme === 'light' ? 'light' : 'dark';
+    });
+
+    useEffect(() => {
+      const root = document.documentElement;
+      const read = () => {
+        setAppTheme(root.dataset.theme === 'light' ? 'light' : 'dark');
+      };
+      read();
+      const obs = new MutationObserver(() => read());
+      obs.observe(root, { attributes: true, attributeFilter: ['data-theme'] });
+      return () => obs.disconnect();
+    }, []);
     const [isAiLoading, setIsAiLoading] = useState(false);
     const [aiError, setAiError] = useState<string | null>(null);
 
     // Never steal focus on mount: only select the title if the user already focused it.
     const titleInputRef = useRef<HTMLInputElement>(null);
     useEffect(() => {
+      if (!showTitleInput) return;
       const el = titleInputRef.current;
       if (!el) return;
       if (document.activeElement !== el) return;
       if (title === 'Untitled Note') el.select();
-    }, [title]);
+    }, [title, showTitleInput]);
 
     const handleAiAction = async (type: 'continue' | 'summarize' | 'improve') => {
       if (!content) return;
@@ -566,6 +655,7 @@ export const Editor: React.FC<EditorProps> = React.memo(
 
     // Extensions for CodeMirror (memoized to avoid expensive reconfigure)
     const extensions = useMemo(() => {
+      const isDark = appTheme === 'dark';
       return [
         // In live preview we hide markdown heading markers. When moving up into a heading,
         // the cursor tends to land after the `#` prefix (visual start of text).
@@ -594,7 +684,7 @@ export const Editor: React.FC<EditorProps> = React.memo(
           ])
         ),
         markdown({ base: markdownLanguage, codeLanguages: languages }),
-        syntaxHighlighting(markdownTheme),
+        syntaxHighlighting(isDark ? markdownThemeDark : markdownThemeLight),
         EditorView.lineWrapping,
         // CodeMirror defaults to Mod+Click = add cursor/selection range.
         // This conflicts with Cmd+Click-to-open-link, so disable it.
@@ -602,16 +692,20 @@ export const Editor: React.FC<EditorProps> = React.memo(
         openLinkOnModClickPlugin,
         EditorView.theme(
           {
-            '&': { color: '#dcddde', backgroundColor: 'transparent' },
-            '.cm-content': { caretColor: '#7c3aed' },
-            '&.cm-focused .cm-cursor': { borderLeftColor: '#7c3aed' },
+            '&': { color: 'rgb(var(--obsidian-text))', backgroundColor: 'transparent' },
+            '.cm-content': { caretColor: 'rgb(var(--obsidian-accent))' },
+            '&.cm-focused .cm-cursor': { borderLeftColor: 'rgb(var(--obsidian-accent))' },
             '&.cm-focused .cm-selectionBackground, ::selection': {
-              backgroundColor: 'rgba(124, 58, 237, 0.3)',
+              backgroundColor: 'rgb(var(--obsidian-accent) / 0.25)',
             },
-            '.cm-gutters': { backgroundColor: 'transparent', color: '#555', border: 'none' },
+            '.cm-gutters': {
+              backgroundColor: 'transparent',
+              color: 'rgb(var(--obsidian-muted))',
+              border: 'none',
+            },
             '.cm-math-block': { margin: '0.75em 0' },
           },
-          { dark: true }
+          { dark: isDark }
         ),
         ...(variant === 'embedded'
           ? [
@@ -620,80 +714,82 @@ export const Editor: React.FC<EditorProps> = React.memo(
                   '.cm-scroller': { paddingTop: '12px', paddingBottom: '24px' },
                   '.cm-content': { maxWidth: 'none', margin: '0', padding: '0 16px' },
                 },
-                { dark: true }
+                { dark: isDark }
               ),
             ]
           : []),
         livePreviewPlugin,
       ];
-    }, [variant]);
+    }, [variant, appTheme]);
 
     return (
       <div className="flex flex-col h-full bg-obsidian-bg relative">
-        {/* Top Bar */}
-        <div
-          className={
-            variant === 'embedded'
-              ? 'flex items-center justify-between px-4 py-3 pb-2 shrink-0'
-              : 'flex items-center justify-between px-8 py-6 pb-2 shrink-0'
-          }
-        >
-          <input
-            ref={titleInputRef}
-            type="text"
-            value={title}
-            onChange={(e) => onTitleChange(e.target.value)}
-            className={
-              variant === 'embedded'
-                ? 'bg-transparent text-lg font-semibold text-white placeholder-obsidian-muted focus:outline-none w-full'
-                : 'bg-transparent text-3xl font-bold text-white placeholder-obsidian-muted focus:outline-none w-full'
-            }
-            placeholder="Note Title"
-          />
+        {/* Top Bar (full editor only) */}
+        {variant === 'full' && (
+          <div className="flex items-center justify-between px-8 py-6 pb-2 shrink-0">
+            {showTitleInput && (
+              <input
+                ref={titleInputRef}
+                type="text"
+                value={title}
+                onChange={(e) => onTitleChange(e.target.value)}
+                className="bg-transparent text-3xl font-bold text-obsidian-text placeholder-obsidian-muted focus:outline-none w-full"
+                placeholder="Note Title"
+              />
+            )}
 
-          <div className="flex items-center gap-2">
-            {isAiLoading ? (
-              <div className="flex items-center gap-2 text-obsidian-accent text-sm animate-pulse">
-                <Sparkles size={16} />
-                <span>Thinking...</span>
-              </div>
-            ) : (
-              <div className="relative group">
-                <button
-                  className="p-2 text-obsidian-muted hover:text-obsidian-accent transition-colors rounded hover:bg-obsidian-active"
-                  title="AI Assistant"
-                >
-                  <Sparkles size={20} />
-                </button>
-                <div className="absolute right-0 mt-2 w-48 bg-obsidian-sidebar border border-obsidian-border rounded-md shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-50 transform origin-top-right">
-                  <div className="py-1">
-                    <button
-                      onClick={() => handleAiAction('continue')}
-                      className="block w-full text-left px-4 py-2 text-sm text-obsidian-text hover:bg-obsidian-accent hover:text-white"
-                    >
-                      Continue Writing
-                    </button>
-                    <button
-                      onClick={() => handleAiAction('summarize')}
-                      className="block w-full text-left px-4 py-2 text-sm text-obsidian-text hover:bg-obsidian-accent hover:text-white"
-                    >
-                      Summarize Note
-                    </button>
-                    <button
-                      onClick={() => handleAiAction('improve')}
-                      className="block w-full text-left px-4 py-2 text-sm text-obsidian-text hover:bg-obsidian-accent hover:text-white"
-                    >
-                      Fix Grammar & Tone
-                    </button>
+            <div className="flex items-center gap-2">
+              {isAiLoading ? (
+                <div className="flex items-center gap-2 text-obsidian-accent text-sm animate-pulse">
+                  <Sparkles size={16} />
+                  <span>Thinking...</span>
+                </div>
+              ) : (
+                <div className="relative group">
+                  <button
+                    className="p-2 text-obsidian-muted hover:text-obsidian-accent transition-colors rounded hover:bg-obsidian-active"
+                    title="AI Assistant"
+                  >
+                    <Sparkles size={20} />
+                  </button>
+                  <div className="absolute right-0 mt-2 w-48 bg-obsidian-sidebar border border-obsidian-border rounded-md shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-50 transform origin-top-right">
+                    <div className="py-1">
+                      <button
+                        onClick={() => handleAiAction('continue')}
+                        className="block w-full text-left px-4 py-2 text-sm text-obsidian-text hover:bg-obsidian-accent hover:text-obsidian-strong"
+                      >
+                        Continue Writing
+                      </button>
+                      <button
+                        onClick={() => handleAiAction('summarize')}
+                        className="block w-full text-left px-4 py-2 text-sm text-obsidian-text hover:bg-obsidian-accent hover:text-obsidian-strong"
+                      >
+                        Summarize Note
+                      </button>
+                      <button
+                        onClick={() => handleAiAction('improve')}
+                        className="block w-full text-left px-4 py-2 text-sm text-obsidian-text hover:bg-obsidian-accent hover:text-obsidian-strong"
+                      >
+                        Fix Grammar & Tone
+                      </button>
+                    </div>
                   </div>
                 </div>
-              </div>
-            )}
+              )}
+            </div>
           </div>
-        </div>
+        )}
+
+        {/* AI control for embedded notes is rendered by the note header */}
 
         {aiError && (
-          <div className="px-8 py-2 text-red-400 text-sm flex items-center gap-2">
+          <div
+            className={
+              variant === 'embedded'
+                ? 'absolute top-12 right-2 z-30 text-red-400 text-xs bg-obsidian-bg/80 backdrop-blur px-2 py-1 rounded border border-obsidian-border flex items-center gap-2'
+                : 'px-8 py-2 text-red-400 text-sm flex items-center gap-2'
+            }
+          >
             <span>⚠️ {aiError}</span>
             <button onClick={() => setAiError(null)} className="underline">
               Dismiss

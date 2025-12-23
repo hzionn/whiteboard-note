@@ -2,9 +2,34 @@
 @tailwind components;
 @tailwind utilities;
 
+:root,
+html[data-theme='dark'] {
+  --obsidian-bg: 30 30 30;
+  --obsidian-sidebar: 17 17 17;
+  --obsidian-border: 51 51 51;
+  --obsidian-accent: 124 58 237;
+  --obsidian-text: 220 221 222;
+  --obsidian-muted: 142 142 142;
+  --obsidian-active: 47 47 47;
+
+  --obsidian-strong: 255 255 255;
+}
+
+html[data-theme='light'] {
+  --obsidian-bg: 248 249 250;
+  --obsidian-sidebar: 242 243 245;
+  --obsidian-border: 213 215 218;
+  --obsidian-accent: 124 58 237;
+  --obsidian-text: 24 24 27;
+  --obsidian-muted: 82 82 91;
+  --obsidian-active: 229 231 235;
+
+  --obsidian-strong: 0 0 0;
+}
+
 body {
-  background-color: #1e1e1e;
-  color: #dcddde;
+  background-color: rgb(var(--obsidian-bg));
+  color: rgb(var(--obsidian-text));
 }
 
 /* Custom Scrollbar */
@@ -18,12 +43,12 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #333;
+  background: rgb(var(--obsidian-border));
   border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #444;
+  background: rgb(var(--obsidian-muted));
 }
 
 /* CodeMirror Specific Overrides for whiteboard-note Feel */
@@ -52,53 +77,53 @@ body {
 
 /* Make syntax characters subtle */
 .cm-formatting-header {
-  color: #444;
+  color: rgb(var(--obsidian-muted));
   font-weight: normal;
 }
 
 .cm-formatting-quote {
-  color: #555;
+  color: rgb(var(--obsidian-muted));
 }
 
 .cm-formatting-list {
-  color: #7c3aed;
+  color: rgb(var(--obsidian-accent));
 }
 
 .cm-quote {
-  color: #999;
+  color: rgb(var(--obsidian-muted));
   font-style: italic;
-  border-left: 2px solid #7c3aed;
+  border-left: 2px solid rgb(var(--obsidian-accent));
   padding-left: 10px;
 }
 
 .cm-strong {
   font-weight: 700;
-  color: #fff;
+  color: rgb(var(--obsidian-strong));
 }
 
 .cm-em {
   font-style: italic;
-  color: #ddd;
+  color: rgb(var(--obsidian-text));
 }
 
 /* Code Blocks */
 .cm-line .cm-monospace {
   font-family: 'JetBrains Mono', monospace;
-  background: #252525;
+  background: rgb(var(--obsidian-active));
   border-radius: 4px;
   padding: 1px 4px;
   font-size: 0.9em;
-  color: #e6a5c2;
+  color: rgb(var(--obsidian-text));
 }
 
 /* Links */
 .cm-link {
-  color: #9d86e8;
+  color: rgb(var(--obsidian-accent));
   text-decoration: none;
 }
 
 .cm-url {
-  color: #555;
+  color: rgb(var(--obsidian-muted));
   text-decoration: none;
 }
 
@@ -123,7 +148,7 @@ body {
 .cm-checkbox-widget {
   margin-right: 8px;
   vertical-align: middle;
-  accent-color: #7c3aed;
+  accent-color: rgb(var(--obsidian-accent));
   cursor: pointer;
   width: 16px;
   height: 16px;

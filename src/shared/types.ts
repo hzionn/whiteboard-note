@@ -3,6 +3,7 @@ export interface Note {
   title: string;
   content: string;
   updatedAt: number;
+  number?: number | null;
   frameId?: string | null;
 }
 

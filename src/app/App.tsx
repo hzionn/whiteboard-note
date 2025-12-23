@@ -9,6 +9,7 @@ import {
   saveBoards,
   setActiveBoardId,
   createBoard,
+  renameBoard,
   deleteBoardData,
   getNotes,
   saveNotes,
@@ -24,8 +25,16 @@ import {
   saveFrames,
   createFrame,
 } from '@/shared/persistence/storage';
+import {
+  AppTheme,
+  getSidebarOpenPreference,
+  getThemePreference,
+  setSidebarOpenPreference,
+  setThemePreference,
+} from '@/shared/persistence/uiPrefs';
 import { Frame, Note, WhiteboardBoard, WhiteboardItem } from '@/shared/types';
 import { v4 as uuidv4 } from 'uuid';
+import { GripVertical, Menu } from 'lucide-react';
 
 const createWelcomeNote = (): Note => ({
   id: uuidv4(),
@@ -61,7 +70,12 @@ const App: React.FC = () => {
 
   const [notes, setNotes] = useState<Note[]>([]);
   const [activeNoteId, setActiveNoteId] = useState<string | null>(null);
+  // IMPORTANT: Don't read localStorage during initial render.
+  // This component is pre-rendered on the server; reading prefs client-side in
+  // the initial state initializer can cause hydration mismatches.
+  const [hasHydrated, setHasHydrated] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [theme, setTheme] = useState<AppTheme>('dark');
   const [whiteboardItems, setWhiteboardItems] = useState<WhiteboardItem[]>([]);
   const [frames, setFrames] = useState<Frame[]>([]);
   const [centerOnRequest, setCenterOnRequest] = useState<{ noteId: string; nonce: number } | null>(
@@ -76,6 +90,8 @@ const App: React.FC = () => {
   const notesDropdownRef = useRef<HTMLDivElement>(null);
   const notesSearchInputRef = useRef<HTMLInputElement>(null);
 
+  const [dragNoteId, setDragNoteId] = useState<string | null>(null);
+
   const [isFramesDropdownOpen, setIsFramesDropdownOpen] = useState(false);
   const [framesSearch, setFramesSearch] = useState('');
   const framesDropdownRef = useRef<HTMLDivElement>(null);
@@ -87,6 +103,27 @@ const App: React.FC = () => {
   useEffect(() => {
     activeBoardIdRef.current = activeBoardId;
   }, [activeBoardId]);
+
+  useEffect(() => {
+    if (!hasHydrated) return;
+    setSidebarOpenPreference(isSidebarOpen);
+  }, [isSidebarOpen]);
+
+  useEffect(() => {
+    if (!hasHydrated) return;
+    setThemePreference(theme);
+    document.documentElement.dataset.theme = theme;
+  }, [theme]);
+
+  useEffect(() => {
+    setHasHydrated(true);
+    const persistedTheme = getThemePreference();
+    setTheme(persistedTheme);
+    document.documentElement.dataset.theme = persistedTheme;
+
+    const persistedSidebar = getSidebarOpenPreference();
+    setIsSidebarOpen(persistedSidebar);
+  }, []);
 
   const flushWhiteboardSaves = useCallback(() => {
     if (whiteboardSaveTimerRef.current != null) {
@@ -200,6 +237,30 @@ const App: React.FC = () => {
     if (!query) return frames;
     return frames.filter((f) => (f.name ?? '').toLowerCase().includes(query));
   }, [frames, framesSearch]);
+
+  const jumpToNote = useCallback((noteId: string) => {
+    setActiveNoteId(noteId);
+    setCenterOnRequest({ noteId, nonce: Date.now() });
+  }, []);
+
+  const reorderNotes = useCallback((draggedNoteId: string, targetNoteId: string) => {
+    if (!activeBoardIdRef.current) return;
+    if (draggedNoteId === targetNoteId) return;
+    const boardId = activeBoardIdRef.current;
+
+    setNotes((prev) => {
+      const fromIndex = prev.findIndex((n) => n.id === draggedNoteId);
+      const toIndex = prev.findIndex((n) => n.id === targetNoteId);
+      if (fromIndex < 0 || toIndex < 0) return prev;
+
+      const next = prev.slice();
+      const [moved] = next.splice(fromIndex, 1);
+      next.splice(toIndex, 0, moved);
+
+      saveNotes(boardId, next);
+      return next;
+    });
+  }, []);
 
   const handleCreateNoteAt = (x: number, y: number) => {
     if (!activeBoardId) return;
@@ -336,6 +397,7 @@ const App: React.FC = () => {
     });
   }, []);
 
+
   const handleAssignNoteToFrame = useCallback((noteId: string, frameId: string | null) => {
     if (!activeBoardIdRef.current) return;
     const boardId = activeBoardIdRef.current;
@@ -381,7 +443,7 @@ const App: React.FC = () => {
     <div className="flex h-screen overflow-hidden bg-obsidian-bg text-obsidian-text font-sans">
       <Sidebar
         isOpen={isSidebarOpen}
-        onToggle={() => setIsSidebarOpen(!isSidebarOpen)}
+        onToggle={() => setIsSidebarOpen((v) => !v)}
         boards={boards}
         activeBoardId={activeBoardId}
         onCreateBoard={() => {
@@ -409,6 +471,10 @@ const App: React.FC = () => {
           setActiveBoardId(boardId);
           setActiveBoardIdState(boardId);
           if (window.innerWidth < 768) setIsSidebarOpen(false);
+        }}
+        onRenameBoard={(boardId, name) => {
+          const nextBoards = renameBoard(boardId, name);
+          setBoards(nextBoards);
         }}
         onDeleteBoard={(boardId) => {
           const board = boards.find((b) => b.id === boardId);
@@ -452,21 +518,18 @@ const App: React.FC = () => {
       />
 
       <main className="flex-1 h-full relative flex flex-col min-w-0">
-        {!isSidebarOpen && (
-          <button
-            onClick={() => setIsSidebarOpen(true)}
-            className="absolute top-4 left-4 z-20 p-2 text-obsidian-muted hover:text-white md:hidden"
-          >
-            {/* Hamburger handled in Sidebar component for visible state, this is just a trigger area if needed, 
-                 but actually Sidebar toggle button handles open state visibility. 
-                 We need a trigger when closed on desktop? No, desktop is always relative.
-                 Mobile closed state needs a trigger. */}
-          </button>
-        )}
-
         {/* Top Notes Dropdown */}
         <div className="shrink-0 border-b border-obsidian-border bg-obsidian-sidebar/60 backdrop-blur px-4 py-2 flex items-center justify-between relative z-20">
           <div className="flex items-center gap-2">
+            <button
+              onClick={() => setIsSidebarOpen((v) => !v)}
+              className="p-2 rounded bg-obsidian-bg hover:bg-obsidian-active text-obsidian-text border border-obsidian-border"
+              title={isSidebarOpen ? 'Hide sidebar' : 'Show sidebar'}
+              aria-label={isSidebarOpen ? 'Hide sidebar' : 'Show sidebar'}
+            >
+              <Menu size={16} />
+            </button>
+
             <div className="flex items-center gap-2" ref={notesDropdownRef}>
               <button
                 onClick={() => setIsNotesDropdownOpen((v) => !v)}
@@ -503,22 +566,72 @@ const App: React.FC = () => {
                                 className={
                                   'w-full px-3 py-2 text-sm flex items-center justify-between gap-3 ' +
                                   (note.id === activeNoteId
-                                    ? 'bg-obsidian-active text-white'
+                                    ? 'bg-obsidian-active text-obsidian-text'
                                     : 'text-obsidian-text hover:bg-obsidian-bg')
                                 }
+                                draggable={notesSearch.trim() === ''}
+                                onDragStart={(e) => {
+                                  if (notesSearch.trim() !== '') return;
+                                  setDragNoteId(note.id);
+                                  e.dataTransfer.effectAllowed = 'move';
+                                  try {
+                                    e.dataTransfer.setData('text/plain', note.id);
+                                  } catch {
+                                    // ignore
+                                  }
+                                }}
+                                onDragEnd={() => {
+                                  setDragNoteId(null);
+                                }}
+                                onDragOver={(e) => {
+                                  if (notesSearch.trim() !== '') return;
+                                  if (!dragNoteId) return;
+                                  e.preventDefault();
+                                  e.dataTransfer.dropEffect = 'move';
+                                }}
+                                onDrop={(e) => {
+                                  if (notesSearch.trim() !== '') return;
+                                  e.preventDefault();
+                                  const from = dragNoteId || e.dataTransfer.getData('text/plain');
+                                  if (!from) return;
+                                  reorderNotes(from, note.id);
+                                  setDragNoteId(null);
+                                }}
                               >
                                 <button
                                   onClick={() => {
-                                    setActiveNoteId(note.id);
-                                    setCenterOnRequest({ noteId: note.id, nonce: Date.now() });
+                                    jumpToNote(note.id);
                                     setIsNotesDropdownOpen(false);
                                     setNotesSearch('');
                                   }}
                                   className="min-w-0 flex-1 text-left"
                                   title={note.title || 'Untitled'}
                                 >
-                                  <span className="truncate block">{note.title || 'Untitled'}</span>
+                                  <span className="flex items-center gap-2 min-w-0">
+                                    <span
+                                      className="shrink-0 h-6 min-w-6 px-2 rounded-full border border-obsidian-border bg-obsidian-bg text-xs text-obsidian-text"
+                                      title="Note order"
+                                    >
+                                      {notes.findIndex((n) => n.id === note.id) + 1}
+                                    </span>
+                                    <span className="truncate block">{note.title || 'Untitled'}</span>
+                                  </span>
                                 </button>
+
+                                <span
+                                  className={
+                                    'shrink-0 text-obsidian-muted ' +
+                                    (notesSearch.trim() === '' ? 'cursor-grab' : 'opacity-40')
+                                  }
+                                  title={
+                                    notesSearch.trim() === ''
+                                      ? 'Drag to reorder'
+                                      : 'Clear search to reorder'
+                                  }
+                                  aria-hidden="true"
+                                >
+                                  <GripVertical size={16} />
+                                </span>
                                 <button
                                   onClick={(e) => {
                                     e.stopPropagation();
@@ -593,7 +706,17 @@ const App: React.FC = () => {
             </div>
           </div>
 
-          <div className="text-xs text-obsidian-muted">Double-click the board to create a note</div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))}
+              className="px-3 py-1.5 rounded bg-obsidian-bg hover:bg-obsidian-active text-sm text-obsidian-text border border-obsidian-border"
+              title="Toggle theme"
+              aria-label="Toggle theme"
+            >
+              {theme === 'dark' ? 'Dark' : 'Light'}
+            </button>
+            <div className="text-xs text-obsidian-muted">Double-click the board to create a note</div>
+          </div>
         </div>
 
         <Whiteboard
@@ -602,6 +725,7 @@ const App: React.FC = () => {
           frames={frames}
           activeNoteId={activeNoteId}
           onActivateNote={(id) => setActiveNoteId(id)}
+          onJumpToNote={jumpToNote}
           onCreateNoteAt={handleCreateNoteAt}
           onUpdateItem={handleUpdateWhiteboardItem}
           onUpdateNoteContent={handleUpdateNoteContent}
