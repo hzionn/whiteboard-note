@@ -1,6 +1,10 @@
 import type { Frame, Note, WhiteboardItem } from '@/shared/types';
 
-const isPointInRect = (px: number, py: number, rect: { x: number; y: number; width: number; height: number }) => {
+const isPointInRect = (
+  px: number,
+  py: number,
+  rect: { x: number; y: number; width: number; height: number }
+) => {
   return px >= rect.x && px <= rect.x + rect.width && py >= rect.y && py <= rect.y + rect.height;
 };
 

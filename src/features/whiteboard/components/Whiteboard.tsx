@@ -159,10 +159,7 @@ export const Whiteboard: React.FC<WhiteboardProps> = ({
     return navigableNotes[0];
   }, [navigableNotes, activeNavigableIndex]);
 
-  const handleAiActionForNote = async (
-    note: Note,
-    type: 'continue' | 'summarize' | 'improve'
-  ) => {
+  const handleAiActionForNote = async (note: Note, type: 'continue' | 'summarize' | 'improve') => {
     const content = note.content ?? '';
     if (!content.trim()) return;
 
@@ -865,6 +862,7 @@ export const Whiteboard: React.FC<WhiteboardProps> = ({
               if (!note) return null;
 
               const isActive = activeNoteId === note.id;
+              const isManipulating = drag?.itemId === item.id || resize?.itemId === item.id;
 
               const edge = 'min(24px, calc(6px / var(--wb-scale)))';
               const corner = 'min(32px, calc(10px / var(--wb-scale)))';
@@ -874,10 +872,7 @@ export const Whiteboard: React.FC<WhiteboardProps> = ({
                 <div
                   key={item.id}
                   data-whiteboard-note="true"
-                  className={
-                    `absolute rounded-md border border-obsidian-border overflow-hidden ` +
-                    `${isActive ? 'ring-2 ring-obsidian-accent' : ''}`
-                  }
+                  className="absolute"
                   style={{
                     left: item.x,
                     top: item.y,
@@ -892,225 +887,237 @@ export const Whiteboard: React.FC<WhiteboardProps> = ({
                   }}
                   onDoubleClick={(e) => e.stopPropagation()}
                 >
-                  {/* Resize handles (thin hit areas along the border) */}
-                  {[
-                    {
-                      dir: 'n' as const,
-                      style: { left: inset, right: inset, top: 0, height: edge },
-                      cursor: 'n-resize',
-                    },
-                    {
-                      dir: 's' as const,
-                      style: { left: inset, right: inset, bottom: 0, height: edge },
-                      cursor: 's-resize',
-                    },
-                    {
-                      dir: 'w' as const,
-                      style: { top: inset, bottom: inset, left: 0, width: edge },
-                      cursor: 'w-resize',
-                    },
-                    {
-                      dir: 'e' as const,
-                      style: { top: inset, bottom: inset, right: 0, width: edge },
-                      cursor: 'e-resize',
-                    },
-                    {
-                      dir: 'nw' as const,
-                      style: { left: 0, top: 0, width: corner, height: corner },
-                      cursor: 'nwse-resize',
-                    },
-                    {
-                      dir: 'ne' as const,
-                      style: { right: 0, top: 0, width: corner, height: corner },
-                      cursor: 'nesw-resize',
-                    },
-                    {
-                      dir: 'sw' as const,
-                      style: { left: 0, bottom: 0, width: corner, height: corner },
-                      cursor: 'nesw-resize',
-                    },
-                    {
-                      dir: 'se' as const,
-                      style: { right: 0, bottom: 0, width: corner, height: corner },
-                      cursor: 'nwse-resize',
-                    },
-                  ].map((h) => (
+                  <div
+                    className={
+                      `relative h-full w-full rounded-md border border-obsidian-border overflow-hidden ` +
+                      `transition-[transform,box-shadow] duration-150 ease-out ` +
+                      `${isManipulating ? '' : 'wb-note-float '} ` +
+                      `${isActive ? 'ring-2 ring-obsidian-accent shadow-md hover:shadow-lg ' : 'shadow-sm hover:shadow-md '}`
+                    }
+                  >
+                    {/* Resize handles (thin hit areas along the border) */}
+                    {[
+                      {
+                        dir: 'n' as const,
+                        style: { left: inset, right: inset, top: 0, height: edge },
+                        cursor: 'n-resize',
+                      },
+                      {
+                        dir: 's' as const,
+                        style: { left: inset, right: inset, bottom: 0, height: edge },
+                        cursor: 's-resize',
+                      },
+                      {
+                        dir: 'w' as const,
+                        style: { top: inset, bottom: inset, left: 0, width: edge },
+                        cursor: 'w-resize',
+                      },
+                      {
+                        dir: 'e' as const,
+                        style: { top: inset, bottom: inset, right: 0, width: edge },
+                        cursor: 'e-resize',
+                      },
+                      {
+                        dir: 'nw' as const,
+                        style: { left: 0, top: 0, width: corner, height: corner },
+                        cursor: 'nwse-resize',
+                      },
+                      {
+                        dir: 'ne' as const,
+                        style: { right: 0, top: 0, width: corner, height: corner },
+                        cursor: 'nesw-resize',
+                      },
+                      {
+                        dir: 'sw' as const,
+                        style: { left: 0, bottom: 0, width: corner, height: corner },
+                        cursor: 'nesw-resize',
+                      },
+                      {
+                        dir: 'se' as const,
+                        style: { right: 0, bottom: 0, width: corner, height: corner },
+                        cursor: 'nwse-resize',
+                      },
+                    ].map((h) => (
+                      <div
+                        key={h.dir}
+                        className="absolute z-20"
+                        style={{ ...h.style, cursor: h.cursor }}
+                        onPointerDown={(e) => {
+                          e.stopPropagation();
+                          onActivateNote(note.id);
+                          bumpToFront(item);
+
+                          setResize({
+                            itemId: item.id,
+                            pointerId: e.pointerId,
+                            dir: h.dir,
+                            startPointerX: e.clientX,
+                            startPointerY: e.clientY,
+                            startX: item.x,
+                            startY: item.y,
+                            startW: item.width,
+                            startH: item.height,
+                          });
+                          (e.currentTarget as HTMLDivElement).setPointerCapture(e.pointerId);
+                        }}
+                      />
+                    ))}
+
                     <div
-                      key={h.dir}
-                      className="absolute z-20"
-                      style={{ ...h.style, cursor: h.cursor }}
+                      className={
+                        `h-10 px-3 flex items-center justify-between select-none ` +
+                        `${isActive ? 'bg-obsidian-active' : 'bg-obsidian-sidebar'}`
+                      }
                       onPointerDown={(e) => {
                         e.stopPropagation();
+
+                        // Don't start dragging if the delete button was pressed.
+                        const target = e.target as HTMLElement | null;
+                        if (target && target.closest('[data-note-delete="true"]')) {
+                          return;
+                        }
+
+                        if (target && target.closest('[data-note-ai="true"]')) {
+                          return;
+                        }
+
+                        // Allow title editing without dragging.
+                        if (
+                          target &&
+                          (target.tagName?.toLowerCase() === 'input' || target.closest('input'))
+                        )
+                          return;
+
                         onActivateNote(note.id);
                         bumpToFront(item);
 
-                        setResize({
+                        setDrag({
                           itemId: item.id,
                           pointerId: e.pointerId,
-                          dir: h.dir,
                           startPointerX: e.clientX,
                           startPointerY: e.clientY,
                           startX: item.x,
                           startY: item.y,
-                          startW: item.width,
-                          startH: item.height,
                         });
                         (e.currentTarget as HTMLDivElement).setPointerCapture(e.pointerId);
                       }}
-                    />
-                  ))}
-
-                  <div
-                    className={
-                      `h-10 px-3 flex items-center justify-between select-none ` +
-                      `${isActive ? 'bg-obsidian-active' : 'bg-obsidian-sidebar'}`
-                    }
-                    onPointerDown={(e) => {
-                      e.stopPropagation();
-
-                      // Don't start dragging if the delete button was pressed.
-                      const target = e.target as HTMLElement | null;
-                      if (target && target.closest('[data-note-delete="true"]')) {
-                        return;
-                      }
-
-                      if (target && target.closest('[data-note-ai="true"]')) {
-                        return;
-                      }
-
-                      // Allow title editing without dragging.
-                      if (target && (target.tagName?.toLowerCase() === 'input' || target.closest('input')))
-                        return;
-
-                      onActivateNote(note.id);
-                      bumpToFront(item);
-
-                      setDrag({
-                        itemId: item.id,
-                        pointerId: e.pointerId,
-                        startPointerX: e.clientX,
-                        startPointerY: e.clientY,
-                        startX: item.x,
-                        startY: item.y,
-                      });
-                      (e.currentTarget as HTMLDivElement).setPointerCapture(e.pointerId);
-                    }}
-                    style={{ cursor: 'move' }}
-                  >
-                    <div className="flex items-center gap-2 min-w-0 w-56 max-w-[65%]">
-                      <span
-                        className="shrink-0 h-6 min-w-6 px-2 rounded-full border border-obsidian-border bg-obsidian-bg text-xs text-obsidian-text"
-                        title="Note order"
-                      >
-                        {noteOrderById.get(note.id) ?? 0}
-                      </span>
-
-                      <input
-                        value={note.title}
-                        onChange={(e) => noteTitleChangeHandlers[note.id]?.(e.target.value)}
-                        onPointerDown={(e) => {
-                          e.stopPropagation();
-                        }}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                        }}
-                        className="min-w-0 flex-1 bg-transparent text-sm font-medium text-obsidian-text outline-none select-text"
-                        placeholder="Untitled"
-                        title={note.title || 'Untitled'}
-                        aria-label="Note title"
-                      />
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <div className="relative group" data-note-ai="true">
-                        <button
-                          type="button"
-                          className="shrink-0 p-1 rounded text-obsidian-muted hover:text-obsidian-accent hover:bg-black/10"
-                          title="AI Assistant"
-                          onPointerDown={(e) => e.stopPropagation()}
-                          onClick={(e) => e.stopPropagation()}
+                      style={{ cursor: 'move' }}
+                    >
+                      <div className="flex items-center gap-2 min-w-0 w-56 max-w-[65%]">
+                        <span
+                          className="shrink-0 h-6 min-w-6 px-2 rounded-full border border-obsidian-border bg-obsidian-bg text-xs text-obsidian-text"
+                          title="Note order"
                         >
-                          <Sparkles size={16} />
-                        </button>
-                        <div className="absolute right-0 mt-2 w-48 bg-obsidian-sidebar border border-obsidian-border rounded-md shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-50 transform origin-top-right">
-                          <div className="py-1">
-                            <button
-                              type="button"
-                              onPointerDown={(e) => e.stopPropagation()}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleAiActionForNote(note, 'continue');
-                              }}
-                              className="block w-full text-left px-4 py-2 text-sm text-obsidian-text hover:bg-obsidian-accent hover:text-obsidian-strong"
-                            >
-                              Continue Writing
-                            </button>
-                            <button
-                              type="button"
-                              onPointerDown={(e) => e.stopPropagation()}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleAiActionForNote(note, 'summarize');
-                              }}
-                              className="block w-full text-left px-4 py-2 text-sm text-obsidian-text hover:bg-obsidian-accent hover:text-obsidian-strong"
-                            >
-                              Summarize Note
-                            </button>
-                            <button
-                              type="button"
-                              onPointerDown={(e) => e.stopPropagation()}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleAiActionForNote(note, 'improve');
-                              }}
-                              className="block w-full text-left px-4 py-2 text-sm text-obsidian-text hover:bg-obsidian-accent hover:text-obsidian-strong"
-                            >
-                              Fix Grammar & Tone
-                            </button>
+                          {noteOrderById.get(note.id) ?? 0}
+                        </span>
+
+                        <input
+                          value={note.title}
+                          onChange={(e) => noteTitleChangeHandlers[note.id]?.(e.target.value)}
+                          onPointerDown={(e) => {
+                            e.stopPropagation();
+                          }}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                          }}
+                          className="min-w-0 flex-1 bg-transparent text-sm font-medium text-obsidian-text outline-none select-text"
+                          placeholder="Untitled"
+                          title={note.title || 'Untitled'}
+                          aria-label="Note title"
+                        />
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <div className="relative group" data-note-ai="true">
+                          <button
+                            type="button"
+                            className="shrink-0 p-1 rounded text-obsidian-muted hover:text-obsidian-accent hover:bg-black/10"
+                            title="AI Assistant"
+                            onPointerDown={(e) => e.stopPropagation()}
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <Sparkles size={16} />
+                          </button>
+                          <div className="absolute right-0 mt-2 w-48 bg-obsidian-sidebar border border-obsidian-border rounded-md shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-50 transform origin-top-right">
+                            <div className="py-1">
+                              <button
+                                type="button"
+                                onPointerDown={(e) => e.stopPropagation()}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleAiActionForNote(note, 'continue');
+                                }}
+                                className="block w-full text-left px-4 py-2 text-sm text-obsidian-text hover:bg-obsidian-accent hover:text-obsidian-strong"
+                              >
+                                Continue Writing
+                              </button>
+                              <button
+                                type="button"
+                                onPointerDown={(e) => e.stopPropagation()}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleAiActionForNote(note, 'summarize');
+                                }}
+                                className="block w-full text-left px-4 py-2 text-sm text-obsidian-text hover:bg-obsidian-accent hover:text-obsidian-strong"
+                              >
+                                Summarize Note
+                              </button>
+                              <button
+                                type="button"
+                                onPointerDown={(e) => e.stopPropagation()}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleAiActionForNote(note, 'improve');
+                                }}
+                                className="block w-full text-left px-4 py-2 text-sm text-obsidian-text hover:bg-obsidian-accent hover:text-obsidian-strong"
+                              >
+                                Fix Grammar & Tone
+                              </button>
+                            </div>
                           </div>
                         </div>
+
+                        {aiLoadingNoteId === note.id && (
+                          <span className="text-xs text-obsidian-accent" title="AI is working">
+                            Thinking...
+                          </span>
+                        )}
+                        {aiErrorNoteId === note.id && (
+                          <span className="text-xs text-red-400" title="AI request failed">
+                            Failed
+                          </span>
+                        )}
+
+                        <button
+                          data-note-delete="true"
+                          type="button"
+                          className="shrink-0 text-obsidian-muted hover:text-red-400"
+                          title="Delete note"
+                          onPointerDown={(e) => {
+                            e.stopPropagation();
+                          }}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onDeleteNote(note.id);
+                          }}
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                        <div className="w-2 h-2 rounded-full bg-obsidian-accent" />
                       </div>
-
-                      {aiLoadingNoteId === note.id && (
-                        <span className="text-xs text-obsidian-accent" title="AI is working">
-                          Thinking...
-                        </span>
-                      )}
-                      {aiErrorNoteId === note.id && (
-                        <span className="text-xs text-red-400" title="AI request failed">
-                          Failed
-                        </span>
-                      )}
-
-                      <button
-                        data-note-delete="true"
-                        type="button"
-                        className="shrink-0 text-obsidian-muted hover:text-red-400"
-                        title="Delete note"
-                        onPointerDown={(e) => {
-                          e.stopPropagation();
-                        }}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onDeleteNote(note.id);
-                        }}
-                      >
-                        <Trash2 size={16} />
-                      </button>
-                      <div className="w-2 h-2 rounded-full bg-obsidian-accent" />
                     </div>
-                  </div>
 
-                  <div className="h-[calc(100%-2.5rem)] bg-obsidian-bg">
-                    {/* Stop bubbling so text-selection double-clicks don't create new notes */}
-                    <div className="h-full" onDoubleClick={(e) => e.stopPropagation()}>
-                      <Editor
-                        key={note.id}
-                        variant="embedded"
-                        content={note.content}
-                        onChange={noteContentChangeHandlers[note.id]}
-                        title={note.title}
-                        onTitleChange={noteTitleChangeHandlers[note.id]}
-                      />
+                    <div className="h-[calc(100%-2.5rem)] bg-obsidian-bg">
+                      {/* Stop bubbling so text-selection double-clicks don't create new notes */}
+                      <div className="h-full" onDoubleClick={(e) => e.stopPropagation()}>
+                        <Editor
+                          key={note.id}
+                          variant="embedded"
+                          content={note.content}
+                          onChange={noteContentChangeHandlers[note.id]}
+                          title={note.title}
+                          onTitleChange={noteTitleChangeHandlers[note.id]}
+                        />
+                      </div>
                     </div>
                   </div>
                 </div>

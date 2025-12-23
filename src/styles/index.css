@@ -139,9 +139,16 @@ body {
   */
   display: inline-block;
   width: 0;
+  height: 0;
+  line-height: 0;
+  font-size: 0;
+  padding: 0;
+  margin: 0;
+  border: 0;
   overflow: hidden;
   white-space: pre;
   pointer-events: none;
+  vertical-align: baseline;
 }
 
 /* Checkbox Widget */
@@ -152,4 +159,21 @@ body {
   cursor: pointer;
   width: 16px;
   height: 16px;
+}
+
+/* Whiteboard note float (steady lift; stronger on hover) */
+.wb-note-float {
+  transform: translate3d(0, -3px, 0);
+  will-change: transform;
+}
+
+.wb-note-float:hover {
+  transform: translate3d(0, -8px, 0);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wb-note-float,
+  .wb-note-float:hover {
+    transform: none;
+  }
 }

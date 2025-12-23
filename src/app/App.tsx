@@ -3,6 +3,7 @@
 import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { Sidebar } from '@/features/boards/components/Sidebar';
 import { Whiteboard } from '@/features/whiteboard/components/Whiteboard';
+import { ChatPanel } from '@/features/ai/components/ChatPanel';
 import {
   ensureBoardsInitialized,
   getBoards,
@@ -34,7 +35,7 @@ import {
 } from '@/shared/persistence/uiPrefs';
 import { Frame, Note, WhiteboardBoard, WhiteboardItem } from '@/shared/types';
 import { v4 as uuidv4 } from 'uuid';
-import { GripVertical, Menu } from 'lucide-react';
+import { GripVertical, Menu, MessageSquare } from 'lucide-react';
 
 const createWelcomeNote = (): Note => ({
   id: uuidv4(),
@@ -76,6 +77,8 @@ const App: React.FC = () => {
   const [hasHydrated, setHasHydrated] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [theme, setTheme] = useState<AppTheme>('dark');
+  const [isChatOpen, setIsChatOpen] = useState(true);
+  const [chatPanelWidth, setChatPanelWidth] = useState(580);
   const [whiteboardItems, setWhiteboardItems] = useState<WhiteboardItem[]>([]);
   const [frames, setFrames] = useState<Frame[]>([]);
   const [centerOnRequest, setCenterOnRequest] = useState<{ noteId: string; nonce: number } | null>(
@@ -397,7 +400,6 @@ const App: React.FC = () => {
     });
   }, []);
 
-
   const handleAssignNoteToFrame = useCallback((noteId: string, frameId: string | null) => {
     if (!activeBoardIdRef.current) return;
     const boardId = activeBoardIdRef.current;
@@ -614,7 +616,9 @@ const App: React.FC = () => {
                                     >
                                       {notes.findIndex((n) => n.id === note.id) + 1}
                                     </span>
-                                    <span className="truncate block">{note.title || 'Untitled'}</span>
+                                    <span className="truncate block">
+                                      {note.title || 'Untitled'}
+                                    </span>
                                   </span>
                                 </button>
 
@@ -708,6 +712,15 @@ const App: React.FC = () => {
 
           <div className="flex items-center gap-2">
             <button
+              onClick={() => setIsChatOpen((v) => !v)}
+              className="hidden md:inline-flex items-center gap-2 px-3 py-1.5 rounded bg-obsidian-bg hover:bg-obsidian-active text-sm text-obsidian-text border border-obsidian-border"
+              title={isChatOpen ? 'Hide AI chat' : 'Show AI chat'}
+              aria-label={isChatOpen ? 'Hide AI chat' : 'Show AI chat'}
+            >
+              <MessageSquare size={16} />
+              <span>AI Chat</span>
+            </button>
+            <button
               onClick={() => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))}
               className="px-3 py-1.5 rounded bg-obsidian-bg hover:bg-obsidian-active text-sm text-obsidian-text border border-obsidian-border"
               title="Toggle theme"
@@ -715,7 +728,9 @@ const App: React.FC = () => {
             >
               {theme === 'dark' ? 'Dark' : 'Light'}
             </button>
-            <div className="text-xs text-obsidian-muted">Double-click the board to create a note</div>
+            <div className="text-xs text-obsidian-muted">
+              Double-click the board to create a note
+            </div>
           </div>
         </div>
 
@@ -737,6 +752,15 @@ const App: React.FC = () => {
           centerOnFrameRequest={centerOnFrameRequest ?? undefined}
         />
       </main>
+
+      <ChatPanel
+        isOpen={isChatOpen}
+        width={chatPanelWidth}
+        onWidthChange={setChatPanelWidth}
+        notes={notes}
+        frames={frames}
+        items={whiteboardItems}
+      />
     </div>
   );
 };

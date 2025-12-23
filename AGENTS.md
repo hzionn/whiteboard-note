@@ -1,6 +1,7 @@
 # Project Context: whiteboard-note (Whiteboard Note App)
 
 Agent instructions: you are a senior SWE. Balance extensibility, readability, simplicity, scalability, and security.
+Remember to follow the project folder structure and conventions.
 This codebase is expected to grow (especially AI features), so prefer clear module boundaries and stable APIs.
 
 ## 1) High-level overview

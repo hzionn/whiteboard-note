@@ -12,8 +12,6 @@ type AiActionRequest = {
   context?: string;
 };
 
-const MAX_INPUT_CHARS = 120_000;
-
 const isAiActionType = (value: unknown): value is AiActionType =>
   value === 'continue' || value === 'summarize' || value === 'improve';
 
@@ -23,8 +21,8 @@ const clampString = (value: unknown, maxLen: number): string => {
 };
 
 const buildPrompt = (req: AiActionRequest) => {
-  const prompt = clampString(req.prompt, MAX_INPUT_CHARS);
-  const context = clampString(req.context, MAX_INPUT_CHARS);
+  const prompt = typeof req.prompt === 'string' ? req.prompt : '';
+  const context = typeof req.context === 'string' ? req.context : '';
 
   let systemInstruction = 'You are a helpful writing assistant integrated into a markdown editor.';
   let contents = '';
@@ -57,10 +55,11 @@ export async function POST(request: Request) {
       );
     }
 
-    const prompt = clampString(body.prompt, MAX_INPUT_CHARS);
-    const context = clampString(body.context, MAX_INPUT_CHARS);
+    // No application-level input clamps.
+    const promptText = typeof body.prompt === 'string' ? body.prompt : '';
+    const contextText = typeof body.context === 'string' ? body.context : '';
 
-    if (!context && !prompt) {
+    if (!contextText && !promptText) {
       return NextResponse.json(
         { error: 'Invalid request: missing prompt/context', requestId },
         { status: 400 }
@@ -80,8 +79,8 @@ export async function POST(request: Request) {
 
     const { systemInstruction, contents } = buildPrompt({
       type: body.type,
-      prompt,
-      context,
+      prompt: promptText,
+      context: contextText,
     });
 
     const response = await ai.models.generateContent({
@@ -89,7 +88,6 @@ export async function POST(request: Request) {
       contents,
       config: {
         systemInstruction,
-        maxOutputTokens: 1000,
       },
     });
 
