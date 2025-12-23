@@ -265,7 +265,7 @@ const App: React.FC = () => {
   const handleCreateNoteAt = (x: number, y: number) => {
     if (!activeBoardId) return;
     const newNote = createNote();
-    const updatedNotes = [newNote, ...notes];
+    const updatedNotes = [...notes, newNote];
     setNotes(updatedNotes);
     saveNotes(activeBoardId, updatedNotes);
     setActiveNoteId(newNote.id);
