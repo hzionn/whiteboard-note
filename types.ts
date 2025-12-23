@@ -27,6 +27,13 @@ export interface WhiteboardItem {
   z: number;
 }
 
+export interface WhiteboardBoard {
+  id: string;
+  name: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
 export interface SearchResult {
   item: Note;
   score?: number;

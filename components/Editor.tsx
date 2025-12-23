@@ -2,12 +2,106 @@ import React, { useEffect, useMemo, useState, useRef } from 'react';
 import CodeMirror from '@uiw/react-codemirror';
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
 import { languages } from '@codemirror/language-data';
-import { EditorView, ViewPlugin, Decoration, DecorationSet, ViewUpdate, WidgetType } from '@codemirror/view';
+import { EditorView, ViewPlugin, Decoration, DecorationSet, ViewUpdate, WidgetType, keymap } from '@codemirror/view';
+import { cursorLineUp } from '@codemirror/commands';
+import { Prec } from '@codemirror/state';
 import { syntaxTree, HighlightStyle, syntaxHighlighting } from '@codemirror/language';
 import { tags } from '@lezer/highlight';
-import { Sparkles, Save, Check } from 'lucide-react';
+import { Sparkles } from 'lucide-react';
 import katex from 'katex';
 import { generateCompletion } from '../services/geminiService';
+
+const safeNormalizeUrl = (raw: string) => {
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+
+  // Strip common trailing punctuation that often follows URLs in prose.
+  const withoutTrailing = trimmed.replace(/[\]\)\}\>\.,;:!?]+$/g, '');
+  if (!withoutTrailing) return null;
+
+  const candidate = withoutTrailing.startsWith('www.') ? `https://${withoutTrailing}` : withoutTrailing;
+  const lower = candidate.toLowerCase();
+
+  // Only allow protocols we actually want to open.
+  if (lower.startsWith('http://') || lower.startsWith('https://') || lower.startsWith('mailto:')) return candidate;
+  return null;
+};
+
+const extractUrlAtPos = (view: EditorView, pos: number) => {
+  const line = view.state.doc.lineAt(pos);
+  const offset = pos - line.from;
+  const text = line.text;
+
+  // Match standard markdown links: [label](url "optional title")
+  // We intentionally keep this conservative (single-line).
+  const mdLink = /\[[^\]]*\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g;
+  for (let m = mdLink.exec(text); m; m = mdLink.exec(text)) {
+    const start = m.index;
+    const end = start + m[0].length;
+    if (offset >= start && offset <= end) {
+      return safeNormalizeUrl(m[1]);
+    }
+  }
+
+  // Match bare URLs in text.
+  const bareUrl = /(https?:\/\/[^\s<>()]+|www\.[^\s<>()]+)/g;
+  for (let m = bareUrl.exec(text); m; m = bareUrl.exec(text)) {
+    const start = m.index;
+    const end = start + m[0].length;
+    if (offset >= start && offset <= end) {
+      return safeNormalizeUrl(m[0]);
+    }
+  }
+
+  // Match autolinks like <https://example.com>
+  const autoLink = /<\s*(https?:\/\/[^\s>]+)\s*>/g;
+  for (let m = autoLink.exec(text); m; m = autoLink.exec(text)) {
+    const start = m.index;
+    const end = start + m[0].length;
+    if (offset >= start && offset <= end) {
+      return safeNormalizeUrl(m[1]);
+    }
+  }
+
+  return null;
+};
+
+const openLinkOnModClickPlugin = ViewPlugin.fromClass(
+  class {
+    private view: EditorView;
+
+    constructor(view: EditorView) {
+      this.view = view;
+      // Capture phase so we beat CodeMirror's built-in Mod+Click multi-cursor behavior.
+      view.dom.addEventListener('mousedown', this.onMouseDown, true);
+    }
+
+    private onMouseDown = (e: MouseEvent) => {
+      if (!(e.metaKey || e.ctrlKey)) return;
+
+      // Only consume the event if we're actually on a link.
+      const coords = { x: e.clientX, y: e.clientY };
+      const pos = this.view.posAtCoords(coords);
+      if (pos == null) return;
+
+      const url = extractUrlAtPos(this.view, pos);
+      if (!url) return;
+
+      // Prevent CodeMirror from treating Mod+Click as add-cursor.
+      e.preventDefault();
+      e.stopPropagation();
+      // stopImmediatePropagation is important here because CodeMirror attaches
+      // its own handlers on the same element.
+      (e as any).stopImmediatePropagation?.();
+
+      window.open(url, '_blank', 'noopener,noreferrer');
+    };
+
+    destroy() {
+      this.view.dom.removeEventListener('mousedown', this.onMouseDown, true);
+    }
+  }
+);
 
 interface EditorProps {
   content: string;
@@ -96,17 +190,18 @@ class CheckboxWidget extends WidgetType {
 }
 
 class MathWidget extends WidgetType {
-  constructor(readonly tex: string, readonly displayMode: boolean) {
+  constructor(readonly tex: string, readonly displayMode: boolean, readonly cursorPos: number) {
     super();
   }
 
   eq(other: MathWidget) {
-    return other.tex === this.tex && other.displayMode === this.displayMode;
+    return other.tex === this.tex && other.displayMode === this.displayMode && other.cursorPos === this.cursorPos;
   }
 
-  toDOM() {
+  toDOM(view: EditorView) {
     const wrap = document.createElement(this.displayMode ? 'div' : 'span');
     wrap.className = this.displayMode ? 'cm-math-widget cm-math-block' : 'cm-math-widget cm-math-inline';
+    wrap.style.cursor = 'text';
     try {
       wrap.innerHTML = katex.renderToString(this.tex, {
         displayMode: this.displayMode,
@@ -117,10 +212,26 @@ class MathWidget extends WidgetType {
       // If KaTeX fails for any reason, fall back to raw TeX.
       wrap.textContent = this.tex;
     }
+
+    // Make the rendered math clickable: clicking should place the caret inside
+    // the underlying $...$ / $$...$$ source so the user can edit it.
+    // Without this, the widget can feel "frozen" because the source text is
+    // replaced and the selection never enters the range (so it never unwraps).
+    wrap.addEventListener('mousedown', (e) => {
+      e.preventDefault();
+      view.focus();
+      view.dispatch({
+        selection: { anchor: this.cursorPos },
+        scrollIntoView: true,
+      });
+    });
+
     return wrap;
   }
 
   ignoreEvent() {
+    // Keep CodeMirror's event handling from trying to interpret DOM interaction
+    // inside the rendered KaTeX. We still handle clicks ourselves in `toDOM`.
     return true;
   }
 }
@@ -148,6 +259,8 @@ const livePreviewPlugin = ViewPlugin.fromClass(class {
 
   update(update: ViewUpdate) {
     if (update.docChanged || update.viewportChanged || update.selectionSet || update.focusChanged) {
+      // Keep this synchronous. Updating decorations asynchronously (e.g. via rAF)
+      // can desync CodeMirror's rendering and leave stale widgets/marks.
       this.decorations = this.compute(update.view);
     }
   }
@@ -262,7 +375,7 @@ const livePreviewPlugin = ViewPlugin.fromClass(class {
         if (inner.length > 0 && !rangeOverlapsAny(absFrom, absTo, codeRanges) && !overlapsSelection(absFrom, absTo)) {
           widgets.push(
             Decoration.replace({
-              widget: new MathWidget(inner, true),
+              widget: new MathWidget(inner, true, absFrom + 2),
               inclusive: true,
             }).range(absFrom, absTo)
           );
@@ -308,7 +421,7 @@ const livePreviewPlugin = ViewPlugin.fromClass(class {
           if (!rangeOverlapsAny(absFrom, absTo, codeRanges) && !overlapsSelection(absFrom, absTo)) {
             widgets.push(
               Decoration.replace({
-                widget: new MathWidget(inner, false),
+                widget: new MathWidget(inner, false, absFrom + 1),
                 inclusive: true,
               }).range(absFrom, absTo)
             );
@@ -328,7 +441,6 @@ const livePreviewPlugin = ViewPlugin.fromClass(class {
 export const Editor: React.FC<EditorProps> = React.memo(({ content, onChange, title, onTitleChange, variant = 'full' }) => {
   const [isAiLoading, setIsAiLoading] = useState(false);
   const [aiError, setAiError] = useState<string | null>(null);
-  const [editorView, setEditorView] = useState<EditorView | null>(null);
 
   // Focus title on load if empty
   const titleInputRef = useRef<HTMLInputElement>(null);
@@ -365,9 +477,39 @@ export const Editor: React.FC<EditorProps> = React.memo(({ content, onChange, ti
   // Extensions for CodeMirror (memoized to avoid expensive reconfigure)
   const extensions = useMemo(() => {
     return [
+      // In live preview we hide markdown heading markers. When moving up into a heading,
+      // the cursor tends to land after the `#` prefix (visual start of text).
+      // This keybinding snaps ArrowUp to the true line start for headings so users
+      // can land before the `#` if they want to edit heading level/markers.
+      Prec.highest(
+        keymap.of([
+          {
+            key: 'ArrowUp',
+            run: (view) => {
+              const moved = cursorLineUp(view);
+              if (!moved) return false;
+
+              const head = view.state.selection.main.head;
+              const line = view.state.doc.lineAt(head);
+              const m = /^#{1,6}\s+/.exec(line.text);
+              if (!m) return true;
+
+              const prefixEnd = line.from + m[0].length;
+              if (head > line.from && head <= prefixEnd) {
+                view.dispatch({ selection: { anchor: line.from }, scrollIntoView: true });
+              }
+              return true;
+            },
+          },
+        ])
+      ),
       markdown({ base: markdownLanguage, codeLanguages: languages }),
       syntaxHighlighting(markdownTheme),
       EditorView.lineWrapping,
+      // CodeMirror defaults to Mod+Click = add cursor/selection range.
+      // This conflicts with Cmd+Click-to-open-link, so disable it.
+      EditorView.clickAddsSelectionRange.of(() => false),
+      openLinkOnModClickPlugin,
       EditorView.theme(
         {
           "&": { color: "#dcddde", backgroundColor: "transparent" },
@@ -456,7 +598,6 @@ export const Editor: React.FC<EditorProps> = React.memo(({ content, onChange, ti
           height="100%"
           extensions={extensions}
           onChange={onChange}
-          onCreateEditor={(view) => setEditorView(view)}
           autoFocus={true}
           className="text-lg h-full"
           basicSetup={{

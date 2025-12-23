@@ -1,23 +1,141 @@
-import { Frame, Note, WhiteboardItem } from '../types';
+import { Frame, Note, WhiteboardBoard, WhiteboardItem } from '../types';
 import { v4 as uuidv4 } from 'uuid';
 
-const STORAGE_KEY = 'obsidian_clone_notes';
-const WHITEBOARD_KEY = 'obsidian_clone_whiteboard_items';
-const FRAMES_KEY = 'obsidian_clone_frames';
+const LEGACY_NOTES_KEY = 'obsidian_clone_notes';
+const LEGACY_WHITEBOARD_KEY = 'obsidian_clone_whiteboard_items';
+const LEGACY_FRAMES_KEY = 'obsidian_clone_frames';
 
-export const getNotes = (): Note[] => {
+const BOARDS_KEY = 'obsidian_clone_whiteboards';
+const ACTIVE_BOARD_ID_KEY = 'obsidian_clone_active_whiteboard_id';
+
+const notesKeyForBoard = (boardId: string) => `obsidian_clone_board_${boardId}_notes`;
+const whiteboardItemsKeyForBoard = (boardId: string) => `obsidian_clone_board_${boardId}_whiteboard_items`;
+const framesKeyForBoard = (boardId: string) => `obsidian_clone_board_${boardId}_frames`;
+
+const safeParse = <T,>(raw: string | null, fallback: T): T => {
+  if (!raw) return fallback;
   try {
-    const data = localStorage.getItem(STORAGE_KEY);
-    return data ? JSON.parse(data) : [];
+    return JSON.parse(raw) as T;
+  } catch (e) {
+    console.error('Failed to parse localStorage JSON', e);
+    return fallback;
+  }
+};
+
+export const getBoards = (): WhiteboardBoard[] => {
+  try {
+    return safeParse<WhiteboardBoard[]>(localStorage.getItem(BOARDS_KEY), []);
+  } catch (e) {
+    console.error('Failed to load boards', e);
+    return [];
+  }
+};
+
+export const saveBoards = (boards: WhiteboardBoard[]) => {
+  try {
+    localStorage.setItem(BOARDS_KEY, JSON.stringify(boards));
+  } catch (e) {
+    console.error('Failed to save boards', e);
+  }
+};
+
+export const getActiveBoardId = (): string | null => {
+  try {
+    return localStorage.getItem(ACTIVE_BOARD_ID_KEY);
+  } catch (e) {
+    console.error('Failed to load active board id', e);
+    return null;
+  }
+};
+
+export const setActiveBoardId = (boardId: string) => {
+  try {
+    localStorage.setItem(ACTIVE_BOARD_ID_KEY, boardId);
+  } catch (e) {
+    console.error('Failed to save active board id', e);
+  }
+};
+
+export const createBoard = (name?: string): WhiteboardBoard => {
+  const now = Date.now();
+  return {
+    id: uuidv4(),
+    name: name?.trim() ? name.trim() : 'Untitled Whiteboard',
+    createdAt: now,
+    updatedAt: now,
+  };
+};
+
+export const ensureBoardsInitialized = (opts?: { defaultBoardName?: string }): { boards: WhiteboardBoard[]; activeBoardId: string } => {
+  const existingBoards = getBoards();
+  const existingActive = getActiveBoardId();
+
+  if (existingBoards.length > 0) {
+    const activeBoardId = existingActive && existingBoards.some(b => b.id === existingActive) ? existingActive : existingBoards[0].id;
+    if (activeBoardId !== existingActive) setActiveBoardId(activeBoardId);
+    return { boards: existingBoards, activeBoardId };
+  }
+
+  // Migration from legacy single-board keys.
+  const legacyNotesRaw = localStorage.getItem(LEGACY_NOTES_KEY);
+  const legacyItemsRaw = localStorage.getItem(LEGACY_WHITEBOARD_KEY);
+  const legacyFramesRaw = localStorage.getItem(LEGACY_FRAMES_KEY);
+
+  const hasLegacy = !!(legacyNotesRaw || legacyItemsRaw || legacyFramesRaw);
+
+  const board = createBoard(opts?.defaultBoardName ?? 'Main Whiteboard');
+  saveBoards([board]);
+  setActiveBoardId(board.id);
+
+  if (hasLegacy) {
+    const legacyNotes = safeParse<Note[]>(legacyNotesRaw, []);
+    const legacyItems = safeParse<WhiteboardItem[]>(legacyItemsRaw, []);
+    const legacyFrames = safeParse<Frame[]>(legacyFramesRaw, []);
+
+    // Write into board-scoped keys.
+    try {
+      localStorage.setItem(notesKeyForBoard(board.id), JSON.stringify(legacyNotes));
+      localStorage.setItem(whiteboardItemsKeyForBoard(board.id), JSON.stringify(legacyItems));
+      localStorage.setItem(framesKeyForBoard(board.id), JSON.stringify(legacyFrames));
+    } catch (e) {
+      console.error('Failed to migrate legacy storage', e);
+    }
+
+    // Best-effort cleanup so we don't keep reading stale data.
+    try {
+      localStorage.removeItem(LEGACY_NOTES_KEY);
+      localStorage.removeItem(LEGACY_WHITEBOARD_KEY);
+      localStorage.removeItem(LEGACY_FRAMES_KEY);
+    } catch {
+      // ignore
+    }
+  }
+
+  return { boards: [board], activeBoardId: board.id };
+};
+
+export const deleteBoardData = (boardId: string) => {
+  try {
+    localStorage.removeItem(notesKeyForBoard(boardId));
+    localStorage.removeItem(whiteboardItemsKeyForBoard(boardId));
+    localStorage.removeItem(framesKeyForBoard(boardId));
+  } catch (e) {
+    console.error('Failed to delete board data', e);
+  }
+};
+
+export const getNotes = (boardId: string): Note[] => {
+  try {
+    return safeParse<Note[]>(localStorage.getItem(notesKeyForBoard(boardId)), []);
   } catch (e) {
     console.error("Failed to load notes", e);
     return [];
   }
 };
 
-export const saveNotes = (notes: Note[]) => {
+export const saveNotes = (boardId: string, notes: Note[]) => {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(notes));
+    localStorage.setItem(notesKeyForBoard(boardId), JSON.stringify(notes));
   } catch (e) {
     console.error("Failed to save notes", e);
   }
@@ -33,19 +151,18 @@ export const createNote = (): Note => {
   };
 };
 
-export const getFrames = (): Frame[] => {
+export const getFrames = (boardId: string): Frame[] => {
   try {
-    const data = localStorage.getItem(FRAMES_KEY);
-    return data ? JSON.parse(data) : [];
+    return safeParse<Frame[]>(localStorage.getItem(framesKeyForBoard(boardId)), []);
   } catch (e) {
     console.error('Failed to load frames', e);
     return [];
   }
 };
 
-export const saveFrames = (frames: Frame[]) => {
+export const saveFrames = (boardId: string, frames: Frame[]) => {
   try {
-    localStorage.setItem(FRAMES_KEY, JSON.stringify(frames));
+    localStorage.setItem(framesKeyForBoard(boardId), JSON.stringify(frames));
   } catch (e) {
     console.error('Failed to save frames', e);
   }
@@ -64,52 +181,51 @@ export const createFrame = (x: number, y: number): Frame => {
   };
 };
 
-export const upsertFrame = (frame: Frame) => {
-  const frames = getFrames();
+export const upsertFrame = (boardId: string, frame: Frame) => {
+  const frames = getFrames(boardId);
   const idx = frames.findIndex(f => f.id === frame.id);
   if (idx >= 0) {
     frames[idx] = frame;
   } else {
     frames.push(frame);
   }
-  saveFrames(frames);
+  saveFrames(boardId, frames);
 };
 
-export const deleteFrameFromStorage = (id: string) => {
-  const frames = getFrames();
-  saveFrames(frames.filter(f => f.id !== id));
+export const deleteFrameFromStorage = (boardId: string, id: string) => {
+  const frames = getFrames(boardId);
+  saveFrames(boardId, frames.filter(f => f.id !== id));
 };
 
-export const updateNoteInStorage = (updatedNote: Note) => {
-  const notes = getNotes();
+export const updateNoteInStorage = (boardId: string, updatedNote: Note) => {
+  const notes = getNotes(boardId);
   const index = notes.findIndex(n => n.id === updatedNote.id);
   if (index >= 0) {
     notes[index] = updatedNote;
   } else {
     notes.unshift(updatedNote);
   }
-  saveNotes(notes);
+  saveNotes(boardId, notes);
 };
 
-export const deleteNoteFromStorage = (id: string) => {
-  const notes = getNotes();
+export const deleteNoteFromStorage = (boardId: string, id: string) => {
+  const notes = getNotes(boardId);
   const filtered = notes.filter(n => n.id !== id);
-  saveNotes(filtered);
+  saveNotes(boardId, filtered);
 };
 
-export const getWhiteboardItems = (): WhiteboardItem[] => {
+export const getWhiteboardItems = (boardId: string): WhiteboardItem[] => {
   try {
-    const data = localStorage.getItem(WHITEBOARD_KEY);
-    return data ? JSON.parse(data) : [];
+    return safeParse<WhiteboardItem[]>(localStorage.getItem(whiteboardItemsKeyForBoard(boardId)), []);
   } catch (e) {
     console.error('Failed to load whiteboard items', e);
     return [];
   }
 };
 
-export const saveWhiteboardItems = (items: WhiteboardItem[]) => {
+export const saveWhiteboardItems = (boardId: string, items: WhiteboardItem[]) => {
   try {
-    localStorage.setItem(WHITEBOARD_KEY, JSON.stringify(items));
+    localStorage.setItem(whiteboardItemsKeyForBoard(boardId), JSON.stringify(items));
   } catch (e) {
     console.error('Failed to save whiteboard items', e);
   }
@@ -127,21 +243,21 @@ export const createWhiteboardItemForNote = (noteId: string, x: number, y: number
   };
 };
 
-export const upsertWhiteboardItem = (item: WhiteboardItem) => {
-  const items = getWhiteboardItems();
+export const upsertWhiteboardItem = (boardId: string, item: WhiteboardItem) => {
+  const items = getWhiteboardItems(boardId);
   const index = items.findIndex(i => i.id === item.id);
   if (index >= 0) {
     items[index] = item;
   } else {
     items.push(item);
   }
-  saveWhiteboardItems(items);
+  saveWhiteboardItems(boardId, items);
 };
 
-export const batchUpsertWhiteboardItems = (updates: WhiteboardItem[]) => {
+export const batchUpsertWhiteboardItems = (boardId: string, updates: WhiteboardItem[]) => {
   if (updates.length === 0) return;
 
-  const items = getWhiteboardItems();
+  const items = getWhiteboardItems(boardId);
   const indexById = new Map(items.map((i, idx) => [i.id, idx] as const));
 
   for (const item of updates) {
@@ -154,10 +270,10 @@ export const batchUpsertWhiteboardItems = (updates: WhiteboardItem[]) => {
     }
   }
 
-  saveWhiteboardItems(items);
+  saveWhiteboardItems(boardId, items);
 };
 
-export const deleteWhiteboardItemsByNoteId = (noteId: string) => {
-  const items = getWhiteboardItems();
-  saveWhiteboardItems(items.filter(i => i.noteId !== noteId));
+export const deleteWhiteboardItemsByNoteId = (boardId: string, noteId: string) => {
+  const items = getWhiteboardItems(boardId);
+  saveWhiteboardItems(boardId, items.filter(i => i.noteId !== noteId));
 };

@@ -2,6 +2,12 @@ import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react'
 import { Sidebar } from './components/Sidebar';
 import { Whiteboard } from './components/Whiteboard';
 import {
+  ensureBoardsInitialized,
+  getBoards,
+  saveBoards,
+  setActiveBoardId,
+  createBoard,
+  deleteBoardData,
   getNotes,
   saveNotes,
   createNote,
@@ -16,16 +22,13 @@ import {
   saveFrames,
   createFrame,
 } from './services/storage';
-import { Frame, Note, WhiteboardItem } from './types';
+import { Frame, Note, WhiteboardBoard, WhiteboardItem } from './types';
 import { v4 as uuidv4 } from 'uuid';
 
-// Initial check for data
-const initialNotes = getNotes();
-if (initialNotes.length === 0) {
-  const welcomeNote: Note = {
-    id: uuidv4(),
-    title: 'Welcome to Obsidian Clone',
-    content: `# Welcome to Obsidian Clone
+const createWelcomeNote = (): Note => ({
+  id: uuidv4(),
+  title: 'Welcome to Obsidian Clone',
+  content: `# Welcome to Obsidian Clone
 
 This is a **true WYSIWYG** markdown editor experiment.
 
@@ -46,12 +49,14 @@ You can write headers, *italics*, **bold**, lists, and more.
 console.log("Hello World");
 \`\`\`
     `,
-    updatedAt: Date.now()
-  };
-  saveNotes([welcomeNote]);
-}
+  updatedAt: Date.now(),
+  frameId: null,
+});
 
 const App: React.FC = () => {
+  const [boards, setBoards] = useState<WhiteboardBoard[]>([]);
+  const [activeBoardId, setActiveBoardIdState] = useState<string | null>(null);
+
   const [notes, setNotes] = useState<Note[]>([]);
   const [activeNoteId, setActiveNoteId] = useState<string | null>(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
@@ -71,12 +76,22 @@ const App: React.FC = () => {
 
   const pendingWhiteboardSavesRef = React.useRef<Map<string, WhiteboardItem>>(new Map());
   const whiteboardSaveTimerRef = React.useRef<number | null>(null);
+  const activeBoardIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    activeBoardIdRef.current = activeBoardId;
+  }, [activeBoardId]);
 
   const flushWhiteboardSaves = useCallback(() => {
+    const boardId = activeBoardIdRef.current;
+    if (!boardId) {
+      pendingWhiteboardSavesRef.current.clear();
+      whiteboardSaveTimerRef.current = null;
+      return;
+    }
     const pending = Array.from(pendingWhiteboardSavesRef.current.values());
     pendingWhiteboardSavesRef.current.clear();
     whiteboardSaveTimerRef.current = null;
-    batchUpsertWhiteboardItems(pending);
+    batchUpsertWhiteboardItems(boardId, pending);
   }, []);
 
   const scheduleWhiteboardSave = useCallback((item: WhiteboardItem) => {
@@ -85,19 +100,28 @@ const App: React.FC = () => {
     whiteboardSaveTimerRef.current = window.setTimeout(flushWhiteboardSaves, 250);
   }, [flushWhiteboardSaves]);
 
-  useEffect(() => {
-    setNotes(getNotes());
-    const storedNotes = getNotes();
-    if (storedNotes.length > 0 && !activeNoteId) {
-        setActiveNoteId(storedNotes[0].id);
-    }
+  const loadBoardData = useCallback((boardId: string) => {
+    const storedNotes = getNotes(boardId);
+    const storedFrames = getFrames(boardId);
+    const storedItems = getWhiteboardItems(boardId);
 
-    const storedFrames = getFrames();
-    if (storedFrames.length > 0) {
+    // First board on a fresh install gets a welcome note.
+    if (storedNotes.length === 0) {
+      const welcome = createWelcomeNote();
+      const nextNotes = [welcome];
+      saveNotes(boardId, nextNotes);
+      const nextItems = [createWhiteboardItemForNote(welcome.id, 120, 120)];
+      saveWhiteboardItems(boardId, nextItems);
+      setNotes(nextNotes);
+      setActiveNoteId(welcome.id);
       setFrames(storedFrames);
+      setWhiteboardItems(nextItems);
+      return;
     }
 
-    const storedItems = getWhiteboardItems();
+    setNotes(storedNotes);
+    setFrames(storedFrames);
+
     if (storedItems.length > 0) {
       setWhiteboardItems(storedItems);
     } else {
@@ -105,9 +129,31 @@ const App: React.FC = () => {
         createWhiteboardItemForNote(note.id, 80 + (idx % 4) * 40, 80 + idx * 40)
       );
       setWhiteboardItems(initialItems);
-      saveWhiteboardItems(initialItems);
+      saveWhiteboardItems(boardId, initialItems);
     }
+
+    setActiveNoteId(storedNotes[0]?.id ?? null);
   }, []);
+
+  useEffect(() => {
+    const { boards: initialBoards, activeBoardId: initialActive } = ensureBoardsInitialized({
+      defaultBoardName: 'Main Whiteboard',
+    });
+    setBoards(initialBoards);
+    setActiveBoardIdState(initialActive);
+    loadBoardData(initialActive);
+  }, [loadBoardData]);
+
+  useEffect(() => {
+    if (!activeBoardId) return;
+    // Flush any pending saves (best-effort) when switching boards.
+    if (whiteboardSaveTimerRef.current != null) {
+      window.clearTimeout(whiteboardSaveTimerRef.current);
+      whiteboardSaveTimerRef.current = null;
+    }
+    pendingWhiteboardSavesRef.current.clear();
+    loadBoardData(activeBoardId);
+  }, [activeBoardId, loadBoardData]);
 
   const activeNote = useMemo(() => notes.find(n => n.id === activeNoteId) ?? null, [notes, activeNoteId]);
 
@@ -127,16 +173,17 @@ const App: React.FC = () => {
   }, [frames, framesSearch]);
 
   const handleCreateNoteAt = (x: number, y: number) => {
+    if (!activeBoardId) return;
     const newNote = createNote();
     const updatedNotes = [newNote, ...notes];
     setNotes(updatedNotes);
-    saveNotes(updatedNotes);
+    saveNotes(activeBoardId, updatedNotes);
     setActiveNoteId(newNote.id);
 
     setWhiteboardItems(prev => {
       const item = createWhiteboardItemForNote(newNote.id, x, y);
       const next = [...prev, item];
-      saveWhiteboardItems(next);
+      saveWhiteboardItems(activeBoardId, next);
       return next;
     });
 
@@ -144,6 +191,7 @@ const App: React.FC = () => {
   };
 
   const handleCreateFrame = () => {
+    if (!activeBoardId) return;
     // Minimal, deterministic placement (can be refined later to use viewport center).
     const idx = frames.length;
     const x = 120 + (idx % 3) * 40;
@@ -151,7 +199,7 @@ const App: React.FC = () => {
     const frame = createFrame(x, y);
     setFrames(prev => {
       const next = [...prev, frame];
-      saveFrames(next);
+      saveFrames(activeBoardId, next);
       return next;
     });
 
@@ -202,18 +250,20 @@ const App: React.FC = () => {
   }, [isFramesDropdownOpen]);
 
   const deleteNoteById = useCallback((id: string) => {
+    if (!activeBoardIdRef.current) return;
     if (!window.confirm('Are you sure you want to delete this note?')) return;
+    const boardId = activeBoardIdRef.current;
 
     setNotes(prev => {
       const updatedNotes = prev.filter(n => n.id !== id);
-      deleteNoteFromStorage(id);
+      deleteNoteFromStorage(boardId, id);
       if (activeNoteId === id) {
         setActiveNoteId(updatedNotes.length > 0 ? updatedNotes[0].id : null);
       }
       return updatedNotes;
     });
 
-    deleteWhiteboardItemsByNoteId(id);
+    deleteWhiteboardItemsByNoteId(boardId, id);
     setWhiteboardItems(prev => prev.filter(i => i.noteId !== id));
   }, [activeNoteId]);
 
@@ -223,11 +273,13 @@ const App: React.FC = () => {
   };
 
   const handleUpdateNoteContent = useCallback((noteId: string, content: string) => {
+    if (!activeBoardIdRef.current) return;
+    const boardId = activeBoardIdRef.current;
     setNotes(prevNotes => {
       const next = prevNotes.map(note => {
         if (note.id === noteId) {
           const updated = { ...note, content, updatedAt: Date.now() };
-          updateNoteInStorage(updated);
+          updateNoteInStorage(boardId, updated);
           return updated;
         }
         return note;
@@ -237,11 +289,13 @@ const App: React.FC = () => {
   }, []);
 
   const handleUpdateNoteTitle = useCallback((noteId: string, title: string) => {
+    if (!activeBoardIdRef.current) return;
+    const boardId = activeBoardIdRef.current;
     setNotes(prevNotes => {
       const next = prevNotes.map(note => {
         if (note.id === noteId) {
           const updated = { ...note, title, updatedAt: Date.now() };
-          updateNoteInStorage(updated);
+          updateNoteInStorage(boardId, updated);
           return updated;
         }
         return note;
@@ -251,12 +305,14 @@ const App: React.FC = () => {
   }, []);
 
   const handleAssignNoteToFrame = useCallback((noteId: string, frameId: string | null) => {
+    if (!activeBoardIdRef.current) return;
+    const boardId = activeBoardIdRef.current;
     setNotes(prevNotes => {
       const next = prevNotes.map(note => {
         if (note.id !== noteId) return note;
         if ((note.frameId ?? null) === frameId) return note;
         const updated: Note = { ...note, frameId, updatedAt: Date.now() };
-        updateNoteInStorage(updated);
+        updateNoteInStorage(boardId, updated);
         return updated;
       });
       return next;
@@ -264,10 +320,12 @@ const App: React.FC = () => {
   }, []);
 
   const handleUpdateFrame = useCallback((updatedFrame: Frame) => {
+    if (!activeBoardIdRef.current) return;
+    const boardId = activeBoardIdRef.current;
     setFrames(prev => {
       const idx = prev.findIndex(f => f.id === updatedFrame.id);
       const next = idx >= 0 ? prev.map(f => (f.id === updatedFrame.id ? updatedFrame : f)) : [...prev, updatedFrame];
-      saveFrames(next);
+      saveFrames(boardId, next);
       return next;
     });
   }, []);
@@ -286,6 +344,75 @@ const App: React.FC = () => {
       <Sidebar 
         isOpen={isSidebarOpen}
         onToggle={() => setIsSidebarOpen(!isSidebarOpen)}
+        boards={boards}
+        activeBoardId={activeBoardId}
+        onCreateBoard={() => {
+          const existing = getBoards();
+          const idx = existing.length + 1;
+          const board = createBoard(`Whiteboard ${idx}`);
+          const nextBoards = [board, ...existing];
+          saveBoards(nextBoards);
+          setBoards(nextBoards);
+          setActiveBoardId(board.id);
+          setActiveBoardIdState(board.id);
+          // New boards start empty.
+          saveNotes(board.id, []);
+          saveFrames(board.id, []);
+          saveWhiteboardItems(board.id, []);
+          if (window.innerWidth < 768) setIsSidebarOpen(false);
+        }}
+        onSelectBoard={(boardId) => {
+          if (boardId === activeBoardId) {
+            if (window.innerWidth < 768) setIsSidebarOpen(false);
+            return;
+          }
+          setActiveBoardId(boardId);
+          setActiveBoardIdState(boardId);
+          if (window.innerWidth < 768) setIsSidebarOpen(false);
+        }}
+        onDeleteBoard={(boardId) => {
+          const board = boards.find(b => b.id === boardId);
+          const label = board?.name?.trim() ? board.name.trim() : 'this whiteboard';
+          if (!window.confirm(`Delete ${label}? This will delete its notes and layout.`)) return;
+
+          // Remove persisted data first (best-effort).
+          deleteBoardData(boardId);
+
+          const nextBoards = boards.filter(b => b.id !== boardId);
+
+          // If we deleted the active board, switch to another (or recreate a default).
+          if (activeBoardId === boardId) {
+            if (whiteboardSaveTimerRef.current != null) {
+              window.clearTimeout(whiteboardSaveTimerRef.current);
+              whiteboardSaveTimerRef.current = null;
+            }
+            pendingWhiteboardSavesRef.current.clear();
+          }
+
+          if (nextBoards.length === 0) {
+            const fallback = createBoard('Main Whiteboard');
+            saveBoards([fallback]);
+            setBoards([fallback]);
+            setActiveBoardId(fallback.id);
+            setActiveBoardIdState(fallback.id);
+            saveNotes(fallback.id, []);
+            saveFrames(fallback.id, []);
+            saveWhiteboardItems(fallback.id, []);
+            if (window.innerWidth < 768) setIsSidebarOpen(false);
+            return;
+          }
+
+          saveBoards(nextBoards);
+          setBoards(nextBoards);
+
+          if (activeBoardId === boardId) {
+            const nextActive = nextBoards[0].id;
+            setActiveBoardId(nextActive);
+            setActiveBoardIdState(nextActive);
+          }
+
+          if (window.innerWidth < 768) setIsSidebarOpen(false);
+        }}
       />
 
       <main className="flex-1 h-full relative flex flex-col min-w-0">

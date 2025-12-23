@@ -96,7 +96,19 @@
 
       /* Hidden Syntax for Live Preview */
       .cm-syntax-hidden {
-        display: none;
+        /*
+          Don't use `display: none` here.
+          CodeMirror relies on DOM measurements for cursor motion; fully removing
+          spans can cause vertical navigation (notably ArrowUp) to misbehave.
+
+          Keep the span in the DOM but give it zero width so it doesn't affect
+          layout while still providing a measurable position.
+        */
+        display: inline-block;
+        width: 0;
+        overflow: hidden;
+        white-space: pre;
+        pointer-events: none;
       }
 
       /* Checkbox Widget */
