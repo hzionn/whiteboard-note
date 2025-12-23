@@ -9,7 +9,7 @@ import { syntaxTree, HighlightStyle, syntaxHighlighting } from '@codemirror/lang
 import { tags } from '@lezer/highlight';
 import { Sparkles } from 'lucide-react';
 import katex from 'katex';
-import { generateCompletion } from '../services/geminiService';
+import { generateCompletion } from '@/features/ai/services/geminiService';
 
 const safeNormalizeUrl = (raw: string) => {
   const trimmed = raw.trim();

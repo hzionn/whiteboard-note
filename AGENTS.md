@@ -1,75 +1,94 @@
-# Obsidian Clone (Whiteboard Note App)
+# Project Context: Obsidian Clone (Whiteboard Note App)
 
-Agents Instructions: You are a senior SWE, you should take balance between extensibiliy, readability, scalability for future proof.
+Agents Instructions: You are a senior SWE, you should take balance between extensibiliy, readability, scalability, security for future proof.
 I can imagine there will be huge of AI features plan to add to our note and whiteboard.
 
-## Brief Project Overview (may outdate over time)
+## 1. Brief Project Overview (may outdate over time)
 
-This project is a web-based, Markdown-centric note-taking application inspired by Obsidian, featuring a **whiteboard interface** and **AI-powered assistance**. It combines a robust text editor with a spatial canvas, allowing users to organize notes visually.
+This project is a web-based, Markdown-centric note-taking application inspired by Obsidian. It features a spatial whiteboard interface where notes can be organized visually, combined with a robust "WYSIWYG-like" Markdown editor and AI-powered writing assistance using Google Gemini.
 
-### Key Features
+### Key Technologies
 
-* **Whiteboard Canvas**: A spatial interface where notes (as cards) and frames (groups) can be positioned, resized, and organized. Supports panning (Space+Drag) and zooming (Cmd/Ctrl+Scroll).
-* **Live Preview Editor**: Built on **CodeMirror 6**, the editor provides a "WYSIWYG-like" experience for Markdown. Syntax markers (e.g., `**bold**`, `# Heading`) are hidden unless the cursor is nearby, and elements like Math (KaTeX) and checkboxes are rendered interactively.
-* **AI Integration**: Integrated **Google Gemini API** (`@google/genai`) to assist with writing. Features include "Continue Writing," "Summarize," and "Fix Grammar/Tone."
-* **Local Persistence**: All data (boards, notes, frames, whiteboard layout) is saved automatically to the browser's `localStorage`.
-* **Multi-Board Support**: Users can create and switch between multiple independent whiteboards.
-
-### Technology Stack
-
-* **Framework**: React 18
-* **Build Tool**: Vite
-* **Language**: TypeScript
-* **Styling**: Tailwind CSS
-* **Editor**: CodeMirror 6 (`@uiw/react-codemirror`, `@codemirror/view`, etc.)
+* **Frontend**: React 19 (TypeScript)
+* **Build System**: Vite
+* **Styling**: Tailwind CSS (Custom "Obsidian" theme)
+* **Editor**: CodeMirror 6 (`@uiw/react-codemirror`)
+* **AI Integration**: Google GenAI SDK (`@google/genai`)
 * **Icons**: Lucide React
 * **Math Rendering**: KaTeX
-* **AI Client**: Google GenAI SDK
 
-## Building and Running
+## 2. Architecture & Structure
+
+The project follows a feature-based directory structure:
+
+* `src/app/`: Contains the main application component (`App.tsx`) which orchestrates global state (boards, notes, frames) and persistence.
+* `src/features/`: Isolated feature modules.
+  * `boards/`: Sidebar and board management.
+  * `whiteboard/`: The spatial canvas component.
+  * `editor/`: The CodeMirror-based markdown editor.
+  * `ai/`: Gemini API integration services.
+* `src/shared/`: Shared utilities, types, and persistence logic (`localStorage` wrappers).
+* `src/styles/`: Global styles and Tailwind configuration.
+
+### Data Model
+
+* **Persistence**: All data is saved to `localStorage` (no backend database).
+* **State Management**: React `useState`/`useReducer` lifted to `App.tsx` and synchronized with storage via effects.
+* **Entities**:
+  * `Note`: Markdown content, ID, position.
+  * `WhiteboardItem`: wrapper for positioning notes on the canvas.
+  * `Frame`: Grouping container for notes.
+  * `Board`: Independent collection of notes and items.
+
+## 3. Building and Running
 
 ### Prerequisites
 
-* Node.js (LTS recommended)
-* A Google Gemini API Key
+* Node.js (LTS)
+* Google Gemini API Key
 
 ### Setup
 
-1. **Install Dependencies**:
+1. **Install dependencies**:
 
     ```bash
     npm install
     ```
 
-2. **Environment Configuration**:
-    Create a `.env.local` file in the root directory and add your Gemini API key:
+2. **Configure Environment**:
+    Create `.env.local` and add your API key:
 
     ```env
     VITE_GEMINI_API_KEY=your_api_key_here
     ```
 
-### Available Scripts
+### Scripts
 
-* **`npm run dev`**: Starts the development server (default port 3000).
-* **`npm run build`**: Builds the application for production.
-* **`npm run preview`**: Previews the production build locally.
+* `npm run dev`: Start development server (default: `http://localhost:5173`).
+* `npm run build`: Build for production.
+* `npm run preview`: Preview production build.
 
-## Project Structure
+## 4. Development Conventions
 
-* **`src/`** (implied root or flat structure):
-  * **`App.tsx`**: Main application controller. Manages global state (boards, notes, active selection) and layout.
-  * **`components/`**:
-    * **`Whiteboard.tsx`**: The infinite canvas component. Handles pointer events for dragging, resizing, and panning. Renders `Editor` instances within note cards.
-    * **`Editor.tsx`**: The CodeMirror wrapper. Contains the logic for "Live Preview," AI integration, and editor theming.
-    * **`Sidebar.tsx`**: Navigation menu for managing boards.
-  * **`services/`**:
-    * **`storage.ts`**: Handles CRUD operations against `localStorage`.
-    * **`geminiService.ts`**: Interface for the Google Gemini API.
-  * **`types.ts`**: TypeScript definitions for `Note`, `WhiteboardItem`, `Frame`, etc.
+### Styling
 
-## Development Conventions
+* Use the custom Tailwind colors defined in `tailwind.config.cjs` for consistency:
+  * `bg-obsidian-bg`, `bg-obsidian-sidebar`
+  * `text-obsidian-text`, `text-obsidian-muted`
+  * `border-obsidian-border`
+  * `text-obsidian-accent` (Purple)
 
-* **State Management**: The app relies primarily on React's local state (`useState`, `useReducer`) lifted to `App.tsx` for coordination, synchronized with `localStorage` via side effects (`useEffect`).
-* **Styling**: Custom Tailwind colors are used extensively (e.g., `bg-obsidian-bg`, `text-obsidian-text`). Ensure new components utilize these semantic tokens for theme consistency.
-* **Editor Plugins**: CodeMirror extensions (like `livePreviewPlugin` in `Editor.tsx`) are used to implement custom rendering behavior. When modifying the editor, ensure plugins are memoized or stable to prevent re-initialization loops.
-* **AI Prompts**: Prompts for Gemini are constructed in `services/geminiService.ts`. System instructions are used to define the AI's persona as a helpful writing assistant.
+### Editor Development
+
+* The editor is built on CodeMirror 6. Custom behavior (like live preview of Markdown syntax) is implemented via CodeMirror plugins/extensions.
+* Ensure plugins are memoized in React components to avoid re-initialization performance issues.
+
+### AI Features
+
+* AI logic resides in `src/features/ai/services/geminiService.ts`.
+* Prompts should use "System Instructions" to define the AI's persona as a helpful writing assistant.
+
+### Git & Version Control
+
+* Follow standard git practices.
+* Commit messages should be clear and descriptive.

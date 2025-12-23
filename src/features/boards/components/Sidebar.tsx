@@ -1,6 +1,6 @@
 import React from 'react';
 import { Menu, Plus, Trash2 } from 'lucide-react';
-import { WhiteboardBoard } from '../types';
+import { WhiteboardBoard } from '@/shared/types';
 
 interface SidebarProps {
   isOpen: boolean;

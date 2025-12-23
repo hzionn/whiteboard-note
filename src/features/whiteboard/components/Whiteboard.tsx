@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Frame, Note, WhiteboardItem } from '../types';
-import { Editor } from './Editor';
+import { Frame, Note, WhiteboardItem } from '@/shared/types';
+import { Editor } from '@/features/editor/components/Editor';
 import { Trash2 } from 'lucide-react';
 
 type DragState =

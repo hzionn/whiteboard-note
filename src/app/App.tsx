@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
-import { Sidebar } from './components/Sidebar';
-import { Whiteboard } from './components/Whiteboard';
+import { Sidebar } from '@/features/boards/components/Sidebar';
+import { Whiteboard } from '@/features/whiteboard/components/Whiteboard';
 import {
   ensureBoardsInitialized,
   getBoards,
@@ -21,8 +21,8 @@ import {
   getFrames,
   saveFrames,
   createFrame,
-} from './services/storage';
-import { Frame, Note, WhiteboardBoard, WhiteboardItem } from './types';
+} from '@/shared/persistence/storage';
+import { Frame, Note, WhiteboardBoard, WhiteboardItem } from '@/shared/types';
 import { v4 as uuidv4 } from 'uuid';
 
 const createWelcomeNote = (): Note => ({
