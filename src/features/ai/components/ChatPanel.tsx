@@ -25,12 +25,142 @@ type ChatPanelProps = {
   items: WhiteboardItem[];
 };
 
+type ChatPersonality = {
+  id: string;
+  label: string;
+  systemInstruction: string;
+};
+
+type ChatHistoryEntry = {
+  id: string;
+  title: string;
+  createdAt: number;
+  updatedAt: number;
+  personalityId: string;
+  messages: ChatMessage[];
+};
+
 const MAX_LOCAL_MESSAGES = 60;
 const MAX_SEND_MESSAGES = 30;
-const CHAT_STORAGE_KEY = 'whiteboard-note.aiChat.messages.v1';
+const MAX_CHAT_HISTORY = 24;
+const CHAT_HISTORY_STORAGE_KEY = 'whiteboard-note.aiChat.history.v1';
+const LEGACY_CHAT_STORAGE_KEY = 'whiteboard-note.aiChat.messages.v1';
 
-const defaultSystemInstruction =
-  'You are a helpful assistant inside a markdown whiteboard note-taking app. Respond in Markdown (no HTML). Be concise and ask clarifying questions when needed.\n\nMentions: You may see @note:<title> and @frame:<name>. @frame refers to a frame/group on the whiteboard; the notes inside mentioned frames are provided as hidden context notes. When the user asks to summarize a mentioned frame, summarize the provided context notes directly (do not ask the user to pick from a list).';
+const BASE_SYSTEM_INSTRUCTION =
+  'You are a helpful assistant inside a markdown whiteboard note-taking app. Respond in Markdown (no HTML).';
+const MENTION_INSTRUCTION =
+  'Mentions: You may see @note:<title> and @frame:<name>. @frame refers to a frame/group on the whiteboard; the notes inside mentioned frames are provided as hidden context notes. When the user asks to summarize a mentioned frame, summarize the provided context notes directly (do not ask the user to pick from a list).';
+
+const buildSystemInstruction = (tone: string) =>
+  `${BASE_SYSTEM_INSTRUCTION} ${tone}\n\n${MENTION_INSTRUCTION}`;
+
+const CHAT_PERSONALITIES: ChatPersonality[] = [
+  {
+    id: 'balanced',
+    label: 'Balanced',
+    systemInstruction: buildSystemInstruction(
+      'Be concise and ask clarifying questions when needed.'
+    ),
+  },
+  {
+    id: 'planner',
+    label: 'Planner',
+    systemInstruction: buildSystemInstruction(
+      'Provide structured steps and checklists. Call out dependencies and tradeoffs. Keep it short.'
+    ),
+  },
+  {
+    id: 'brainstorm',
+    label: 'Brainstorm',
+    systemInstruction: buildSystemInstruction(
+      'Generate 3-5 creative options or angles with quick pros/cons. Keep it brief.'
+    ),
+  },
+  {
+    id: 'editor',
+    label: 'Editor',
+    systemInstruction: buildSystemInstruction(
+      'Improve clarity and tone with tight rewrites. Explain changes in 2-3 bullets if needed.'
+    ),
+  },
+];
+
+const DEFAULT_PERSONALITY_ID = CHAT_PERSONALITIES[0]?.id ?? 'balanced';
+
+const getPersonality = (id: string) =>
+  CHAT_PERSONALITIES.find((personality) => personality.id === id) ?? CHAT_PERSONALITIES[0]!;
+
+const createChatId = () => {
+  if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
+    return crypto.randomUUID();
+  }
+  return `chat_${Date.now()}_${Math.random().toString(16).slice(2, 10)}`;
+};
+
+const normalizeMessages = (raw: unknown): ChatMessage[] => {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((m): ChatMessage => ({
+      role: (m as any)?.role === 'model' ? 'model' : 'user',
+      text: typeof (m as any)?.text === 'string' ? ((m as any).text as string) : '',
+    }))
+    .filter((m) => m.text.trim().length > 0)
+    .slice(-MAX_LOCAL_MESSAGES);
+};
+
+const buildChatTitle = (messages: ChatMessage[]) => {
+  const firstUser = messages.find((m) => m.role === 'user' && m.text.trim().length > 0);
+  if (!firstUser) return 'Untitled chat';
+  const clean = firstUser.text.replace(/\s+/g, ' ').trim();
+  if (!clean) return 'Untitled chat';
+  return clean.length > 48 ? `${clean.slice(0, 48)}...` : clean;
+};
+
+const sortChatHistory = (history: ChatHistoryEntry[]) =>
+  [...history]
+    .sort((a, b) => b.updatedAt - a.updatedAt || b.createdAt - a.createdAt)
+    .slice(0, MAX_CHAT_HISTORY);
+
+const parseChatHistory = (raw: string | null): ChatHistoryEntry[] => {
+  if (!raw) return [];
+  const parsed = JSON.parse(raw) as unknown;
+  if (!Array.isArray(parsed)) return [];
+  return parsed
+    .map((entry) => {
+      const messages = normalizeMessages((entry as any)?.messages);
+      if (messages.length === 0) return null;
+      const id = typeof (entry as any)?.id === 'string' ? (entry as any).id : createChatId();
+      const personalityId =
+        typeof (entry as any)?.personalityId === 'string'
+          ? (entry as any).personalityId
+          : DEFAULT_PERSONALITY_ID;
+      const createdAt =
+        typeof (entry as any)?.createdAt === 'number' ? (entry as any).createdAt : Date.now();
+      const updatedAt =
+        typeof (entry as any)?.updatedAt === 'number' ? (entry as any).updatedAt : createdAt;
+      const title =
+        typeof (entry as any)?.title === 'string' && (entry as any).title.trim().length > 0
+          ? (entry as any).title
+          : buildChatTitle(messages);
+      return {
+        id,
+        title,
+        createdAt,
+        updatedAt,
+        personalityId,
+        messages,
+      } satisfies ChatHistoryEntry;
+    })
+    .filter((entry): entry is ChatHistoryEntry => Boolean(entry));
+};
+
+const formatChatTimestamp = (value: number) => {
+  try {
+    return new Date(value).toLocaleString();
+  } catch {
+    return '';
+  }
+};
 
 const copyToClipboard = async (text: string) => {
   if (!text) return;
@@ -66,6 +196,9 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
+  const [chatHistory, setChatHistory] = useState<ChatHistoryEntry[]>([]);
+  const [activeChatId, setActiveChatId] = useState<string | null>(null);
+  const [selectedPersonalityId, setSelectedPersonalityId] = useState(DEFAULT_PERSONALITY_ID);
 
   const [mentionOpen, setMentionOpen] = useState(false);
   const [mentionQuery, setMentionQuery] = useState('');
@@ -114,6 +247,10 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
   const draftInputRef = useRef<HTMLTextAreaElement>(null);
 
   const canSend = useMemo(() => draft.trim().length > 0 && !isSending, [draft, isSending]);
+  const activePersonality = useMemo(
+    () => getPersonality(selectedPersonalityId),
+    [selectedPersonalityId]
+  );
   const draftMentionedNotes = useMemo(() => resolveMentionedNotes(draft, notes), [draft, notes]);
 
   const draftMentionedFrames = useMemo(
@@ -173,18 +310,28 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
 
   useEffect(() => {
     try {
-      const raw = window.localStorage.getItem(CHAT_STORAGE_KEY);
-      if (!raw) return;
-      const parsed = JSON.parse(raw) as unknown;
-      if (!Array.isArray(parsed)) return;
-      const restored = parsed
-        .map((m) => ({
-          role: (m as any)?.role === 'model' ? 'model' : 'user',
-          text: typeof (m as any)?.text === 'string' ? (m as any).text : '',
-        }))
-        .filter((m) => m.text.trim().length > 0)
-        .slice(-MAX_LOCAL_MESSAGES) as ChatMessage[];
-      if (restored.length > 0) setMessages(restored);
+      const restored = parseChatHistory(window.localStorage.getItem(CHAT_HISTORY_STORAGE_KEY));
+      if (restored.length > 0) {
+        setChatHistory(sortChatHistory(restored));
+        return;
+      }
+
+      const legacyRaw = window.localStorage.getItem(LEGACY_CHAT_STORAGE_KEY);
+      if (!legacyRaw) return;
+      const legacyParsed = JSON.parse(legacyRaw) as unknown;
+      const legacyMessages = normalizeMessages(legacyParsed);
+      if (legacyMessages.length === 0) return;
+      const now = Date.now();
+      const migrated: ChatHistoryEntry = {
+        id: createChatId(),
+        title: buildChatTitle(legacyMessages),
+        createdAt: now,
+        updatedAt: now,
+        personalityId: DEFAULT_PERSONALITY_ID,
+        messages: legacyMessages,
+      };
+      setChatHistory(sortChatHistory([migrated]));
+      window.localStorage.removeItem(LEGACY_CHAT_STORAGE_KEY);
     } catch {
       // ignore
     }
@@ -192,18 +339,15 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
 
   useEffect(() => {
     try {
-      if (messages.length === 0) {
-        window.localStorage.removeItem(CHAT_STORAGE_KEY);
+      if (chatHistory.length === 0) {
+        window.localStorage.removeItem(CHAT_HISTORY_STORAGE_KEY);
         return;
       }
-      window.localStorage.setItem(
-        CHAT_STORAGE_KEY,
-        JSON.stringify(messages.slice(-MAX_LOCAL_MESSAGES))
-      );
+      window.localStorage.setItem(CHAT_HISTORY_STORAGE_KEY, JSON.stringify(chatHistory));
     } catch {
       // ignore
     }
-  }, [messages]);
+  }, [chatHistory]);
 
   const updateMentionStateFromCaret = () => {
     const el = draftInputRef.current;
@@ -314,16 +458,122 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
     }, 0);
   };
 
+  const saveChatHistory = (
+    chatId: string,
+    nextMessages: ChatMessage[],
+    options?: { updatedAt?: number; createdAt?: number; personalityId?: string }
+  ) => {
+    const clampedMessages = nextMessages.slice(-MAX_LOCAL_MESSAGES);
+    const now = options?.updatedAt ?? Date.now();
+    const personalityId = options?.personalityId ?? selectedPersonalityId;
+    setChatHistory((prev) => {
+      const existing = prev.find((chat) => chat.id === chatId);
+      const createdAt = existing?.createdAt ?? options?.createdAt ?? now;
+      const entry: ChatHistoryEntry = {
+        id: chatId,
+        title: buildChatTitle(clampedMessages),
+        createdAt,
+        updatedAt: now,
+        personalityId,
+        messages: clampedMessages,
+      };
+      return sortChatHistory([...prev.filter((chat) => chat.id !== chatId), entry]);
+    });
+  };
+
+  const selectChatHistory = (chatId: string) => {
+    const chat = chatHistory.find((entry) => entry.id === chatId);
+    if (!chat) return;
+    setActiveChatId(chatId);
+    setMessages(chat.messages);
+    setSelectedPersonalityId(
+      CHAT_PERSONALITIES.some((personality) => personality.id === chat.personalityId)
+        ? chat.personalityId
+        : DEFAULT_PERSONALITY_ID
+    );
+    setError(null);
+    setEditingIndex(null);
+    setCopiedIndex(null);
+    scrollToBottomSoon();
+  };
+
+  const closeActiveChat = () => {
+    setActiveChatId(null);
+    setMessages([]);
+    setEditingIndex(null);
+    setCopiedIndex(null);
+    setError(null);
+  };
+
+  const clearChat = () => {
+    setError(null);
+    setEditingIndex(null);
+    setCopiedIndex(null);
+    setMentionOpen(false);
+    setMentionQuery('');
+    setMentionAnchorIndex(null);
+    setMentionActiveIndex(0);
+    setDraft('');
+    if (activeChatId) {
+      setChatHistory((prev) => prev.filter((chat) => chat.id !== activeChatId));
+      setActiveChatId(null);
+      setMessages([]);
+      return;
+    }
+    setChatHistory([]);
+    setMessages([]);
+    try {
+      window.localStorage.removeItem(LEGACY_CHAT_STORAGE_KEY);
+    } catch {
+      // ignore
+    }
+  };
+
+  const handlePersonalityChange = (nextId: string) => {
+    setSelectedPersonalityId(nextId);
+    if (!activeChatId) return;
+    setChatHistory((prev) => {
+      const existing = prev.find((chat) => chat.id === activeChatId);
+      if (!existing || existing.personalityId === nextId) return prev;
+      const updated: ChatHistoryEntry = {
+        ...existing,
+        personalityId: nextId,
+        updatedAt: Date.now(),
+      };
+      return sortChatHistory([...prev.filter((chat) => chat.id !== activeChatId), updated]);
+    });
+  };
+
   const send = async () => {
     const text = draft.trim();
     if (!text || isSending) return;
 
+    setMentionOpen(false);
+    setMentionQuery('');
+    setMentionAnchorIndex(null);
+    setMentionActiveIndex(0);
     setDraft('');
     setError(null);
 
     const nextMessages: ChatMessage[] = [...messages, { role: 'user', text } as ChatMessage].slice(
       -MAX_LOCAL_MESSAGES
     );
+    const now = Date.now();
+    let chatId = activeChatId;
+    if (!chatId) {
+      chatId = createChatId();
+      setActiveChatId(chatId);
+      saveChatHistory(chatId, nextMessages, {
+        createdAt: now,
+        updatedAt: now,
+        personalityId: selectedPersonalityId,
+      });
+    } else {
+      saveChatHistory(chatId, nextMessages, {
+        updatedAt: now,
+        personalityId: selectedPersonalityId,
+      });
+    }
     setMessages(nextMessages);
     scrollToBottomSoon();
 
@@ -346,7 +596,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
       }));
       const responseText = await sendChatMessage({
         messages: requestMessages,
-        systemInstruction: defaultSystemInstruction,
+        systemInstruction: activePersonality.systemInstruction,
         noteContext,
       });
 
@@ -355,6 +605,12 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
         { role: 'model', text: responseText } as ChatMessage,
       ].slice(-MAX_LOCAL_MESSAGES);
       setMessages(withModel);
+      if (chatId) {
+        saveChatHistory(chatId, withModel, {
+          updatedAt: Date.now(),
+          personalityId: selectedPersonalityId,
+        });
+      }
       scrollToBottomSoon();
     } catch (e) {
       const message = e instanceof Error ? e.message : 'AI chat failed';
@@ -397,29 +653,81 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
         <div className="absolute left-0 top-0 bottom-0 w-2 bg-transparent hover:bg-obsidian-border/30" />
       </div>
 
-      <div className="p-4 border-b border-obsidian-border flex items-center justify-between">
-        <h2 className="text-sm font-bold text-obsidian-muted uppercase tracking-wider">AI Chat</h2>
-        <button
-          onClick={() => {
-            setMessages([]);
-            setError(null);
-            try {
-              window.localStorage.removeItem(CHAT_STORAGE_KEY);
-            } catch {
-              // ignore
-            }
-          }}
-          className="text-xs text-obsidian-muted hover:text-obsidian-text"
-          title="Clear chat"
+      <div className="p-4 border-b border-obsidian-border flex items-center justify-between gap-2">
+        <select
+          value={selectedPersonalityId}
+          onChange={(e) => handlePersonalityChange(e.target.value)}
+          className="text-xs uppercase tracking-wider bg-obsidian-bg text-obsidian-text border border-obsidian-border rounded px-2 py-1 focus:outline-none focus:border-obsidian-accent"
+          aria-label="Select AI personality"
         >
-          Clear
-        </button>
+          {CHAT_PERSONALITIES.map((personality) => (
+            <option key={personality.id} value={personality.id}>
+              {personality.label}
+            </option>
+          ))}
+        </select>
+        <div className="flex items-center gap-2">
+          {activeChatId && (
+            <button
+              onClick={closeActiveChat}
+              className="text-xs text-obsidian-muted hover:text-obsidian-text"
+              title="View chat history"
+            >
+              History
+            </button>
+          )}
+          <button
+            onClick={clearChat}
+            className="text-xs text-obsidian-muted hover:text-obsidian-text"
+            title="Clear chat"
+          >
+            Clear
+          </button>
+        </div>
       </div>
 
       <div ref={listRef} className="flex-1 overflow-y-auto p-4 space-y-3">
-        {messages.length === 0 ? (
+        {!activeChatId ? (
+          chatHistory.length === 0 ? (
+            <div className="text-sm text-obsidian-muted">
+              No chats yet. Send a message to start a new chat.
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <div className="text-xs uppercase tracking-wider text-obsidian-muted">
+                Chat history
+              </div>
+              <div className="space-y-2">
+                {chatHistory.map((chat) => {
+                  const personality = getPersonality(chat.personalityId);
+                  return (
+                    <button
+                      key={chat.id}
+                      type="button"
+                      onClick={() => selectChatHistory(chat.id)}
+                      className="w-full text-left rounded border border-obsidian-border bg-obsidian-bg/40 px-3 py-2 hover:bg-obsidian-active"
+                      title="Open chat"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="text-sm text-obsidian-text font-medium truncate">
+                          {chat.title}
+                        </div>
+                        <div className="text-xs text-obsidian-muted">
+                          {formatChatTimestamp(chat.updatedAt)}
+                        </div>
+                      </div>
+                      <div className="mt-1 text-xs text-obsidian-muted">
+                        {chat.messages.length} messages | {personality.label}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )
+        ) : messages.length === 0 ? (
           <div className="text-sm text-obsidian-muted">
-            Ask anything. I’ll keep replies concise.
+            Ask anything. I'll keep replies concise.
           </div>
         ) : (
           messages.map((m, idx) => (
@@ -533,9 +841,18 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
                     editable={true}
                     basicSetup={editorBasicSetup}
                     onChange={(value) => {
-                      setMessages((prev) =>
-                        prev.map((msg, i) => (i === idx ? { ...msg, text: value } : msg))
-                      );
+                      setMessages((prev) => {
+                        const next = prev.map((msg, i) =>
+                          i === idx ? { ...msg, text: value } : msg
+                        );
+                        if (activeChatId) {
+                          saveChatHistory(activeChatId, next, {
+                            updatedAt: Date.now(),
+                            personalityId: selectedPersonalityId,
+                          });
+                        }
+                        return next;
+                      });
                     }}
                   />
                 ) : (

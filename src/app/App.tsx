@@ -15,7 +15,6 @@ import {
   getNotes,
   saveNotes,
   createNote,
-  updateNoteInStorage,
   deleteNoteFromStorage,
   getWhiteboardItems,
   saveWhiteboardItems,
@@ -28,8 +27,10 @@ import {
 } from '@/shared/persistence/storage';
 import {
   AppTheme,
+  getChatOpenPreference,
   getSidebarOpenPreference,
   getThemePreference,
+  setChatOpenPreference,
   setSidebarOpenPreference,
   setThemePreference,
 } from '@/shared/persistence/uiPrefs';
@@ -100,8 +101,29 @@ const App: React.FC = () => {
   const framesDropdownRef = useRef<HTMLDivElement>(null);
   const framesSearchInputRef = useRef<HTMLInputElement>(null);
 
+  const notesRef = useRef<Note[]>([]);
+  const framesRef = useRef<Frame[]>([]);
+  const commitNotes = useCallback((next: Note[] | ((prev: Note[]) => Note[])) => {
+    setNotes((prev) => {
+      const resolved = typeof next === 'function' ? (next as (p: Note[]) => Note[])(prev) : next;
+      notesRef.current = resolved;
+      return resolved;
+    });
+  }, []);
+  const commitFrames = useCallback((next: Frame[] | ((prev: Frame[]) => Frame[])) => {
+    setFrames((prev) => {
+      const resolved = typeof next === 'function' ? (next as (p: Frame[]) => Frame[])(prev) : next;
+      framesRef.current = resolved;
+      return resolved;
+    });
+  }, []);
+
   const pendingWhiteboardSavesRef = React.useRef<Map<string, WhiteboardItem>>(new Map());
   const whiteboardSaveTimerRef = React.useRef<number | null>(null);
+  const noteSaveTimerRef = React.useRef<number | null>(null);
+  const frameSaveTimerRef = React.useRef<number | null>(null);
+  const notesDirtyRef = React.useRef(false);
+  const framesDirtyRef = React.useRef(false);
   const activeBoardIdRef = useRef<string | null>(null);
   useEffect(() => {
     activeBoardIdRef.current = activeBoardId;
@@ -111,6 +133,11 @@ const App: React.FC = () => {
     if (!hasHydrated) return;
     setSidebarOpenPreference(isSidebarOpen);
   }, [isSidebarOpen]);
+
+  useEffect(() => {
+    if (!hasHydrated) return;
+    setChatOpenPreference(isChatOpen);
+  }, [isChatOpen]);
 
   useEffect(() => {
     if (!hasHydrated) return;
@@ -126,6 +153,9 @@ const App: React.FC = () => {
 
     const persistedSidebar = getSidebarOpenPreference();
     setIsSidebarOpen(persistedSidebar);
+
+    const persistedChat = getChatOpenPreference();
+    setIsChatOpen(persistedChat);
   }, []);
 
   const flushWhiteboardSaves = useCallback(() => {
@@ -152,6 +182,42 @@ const App: React.FC = () => {
     [flushWhiteboardSaves]
   );
 
+  const flushNoteSaves = useCallback(() => {
+    if (noteSaveTimerRef.current != null) {
+      window.clearTimeout(noteSaveTimerRef.current);
+      noteSaveTimerRef.current = null;
+    }
+    if (!notesDirtyRef.current) return;
+    notesDirtyRef.current = false;
+    const boardId = activeBoardIdRef.current;
+    if (!boardId) return;
+    saveNotes(boardId, notesRef.current);
+  }, []);
+
+  const scheduleNoteSave = useCallback(() => {
+    notesDirtyRef.current = true;
+    if (noteSaveTimerRef.current != null) return;
+    noteSaveTimerRef.current = window.setTimeout(flushNoteSaves, 350);
+  }, [flushNoteSaves]);
+
+  const flushFrameSaves = useCallback(() => {
+    if (frameSaveTimerRef.current != null) {
+      window.clearTimeout(frameSaveTimerRef.current);
+      frameSaveTimerRef.current = null;
+    }
+    if (!framesDirtyRef.current) return;
+    framesDirtyRef.current = false;
+    const boardId = activeBoardIdRef.current;
+    if (!boardId) return;
+    saveFrames(boardId, framesRef.current);
+  }, []);
+
+  const scheduleFrameSave = useCallback(() => {
+    framesDirtyRef.current = true;
+    if (frameSaveTimerRef.current != null) return;
+    frameSaveTimerRef.current = window.setTimeout(flushFrameSaves, 350);
+  }, [flushFrameSaves]);
+
   const loadBoardData = useCallback((boardId: string) => {
     const storedNotes = getNotes(boardId);
     const storedFrames = getFrames(boardId);
@@ -164,15 +230,15 @@ const App: React.FC = () => {
       saveNotes(boardId, nextNotes);
       const nextItems = [createWhiteboardItemForNote(welcome.id, 120, 120)];
       saveWhiteboardItems(boardId, nextItems);
-      setNotes(nextNotes);
+      commitNotes(nextNotes);
       setActiveNoteId(null);
-      setFrames(storedFrames);
+      commitFrames(storedFrames);
       setWhiteboardItems(nextItems);
       return;
     }
 
-    setNotes(storedNotes);
-    setFrames(storedFrames);
+    commitNotes(storedNotes);
+    commitFrames(storedFrames);
 
     if (storedItems.length > 0) {
       setWhiteboardItems(storedItems);
@@ -206,10 +272,16 @@ const App: React.FC = () => {
     // hidden or the page is unloaded. localStorage writes are synchronous.
     const onBeforeUnload = () => {
       flushWhiteboardSaves();
+      flushNoteSaves();
+      flushFrameSaves();
     };
 
     const onVisibilityChange = () => {
-      if (document.visibilityState !== 'visible') flushWhiteboardSaves();
+      if (document.visibilityState !== 'visible') {
+        flushWhiteboardSaves();
+        flushNoteSaves();
+        flushFrameSaves();
+      }
     };
 
     window.addEventListener('beforeunload', onBeforeUnload);
@@ -218,7 +290,7 @@ const App: React.FC = () => {
       window.removeEventListener('beforeunload', onBeforeUnload);
       document.removeEventListener('visibilitychange', onVisibilityChange);
     };
-  }, [flushWhiteboardSaves]);
+  }, [flushWhiteboardSaves, flushNoteSaves, flushFrameSaves]);
 
   const activeNote = useMemo(
     () => notes.find((n) => n.id === activeNoteId) ?? null,
@@ -251,7 +323,7 @@ const App: React.FC = () => {
     if (draggedNoteId === targetNoteId) return;
     const boardId = activeBoardIdRef.current;
 
-    setNotes((prev) => {
+    commitNotes((prev) => {
       const fromIndex = prev.findIndex((n) => n.id === draggedNoteId);
       const toIndex = prev.findIndex((n) => n.id === targetNoteId);
       if (fromIndex < 0 || toIndex < 0) return prev;
@@ -269,7 +341,7 @@ const App: React.FC = () => {
     if (!activeBoardId) return;
     const newNote = createNote();
     const updatedNotes = [...notes, newNote];
-    setNotes(updatedNotes);
+    commitNotes(updatedNotes);
     saveNotes(activeBoardId, updatedNotes);
     setActiveNoteId(newNote.id);
 
@@ -290,7 +362,7 @@ const App: React.FC = () => {
     const x = 120 + (idx % 3) * 40;
     const y = 120 + idx * 40;
     const frame = createFrame(x, y);
-    setFrames((prev) => {
+    commitFrames((prev) => {
       const next = [...prev, frame];
       saveFrames(activeBoardId, next);
       return next;
@@ -348,7 +420,7 @@ const App: React.FC = () => {
       if (!window.confirm('Are you sure you want to delete this note?')) return;
       const boardId = activeBoardIdRef.current;
 
-      setNotes((prev) => {
+      commitNotes((prev) => {
         const updatedNotes = prev.filter((n) => n.id !== id);
         deleteNoteFromStorage(boardId, id);
         if (activeNoteId === id) {
@@ -368,66 +440,74 @@ const App: React.FC = () => {
     deleteNoteById(id);
   };
 
-  const handleUpdateNoteContent = useCallback((noteId: string, content: string) => {
-    if (!activeBoardIdRef.current) return;
-    const boardId = activeBoardIdRef.current;
-    setNotes((prevNotes) => {
-      const next = prevNotes.map((note) => {
-        if (note.id === noteId) {
-          const updated = { ...note, content, updatedAt: Date.now() };
-          updateNoteInStorage(boardId, updated);
+  const handleUpdateNoteContent = useCallback(
+    (noteId: string, content: string) => {
+      if (!activeBoardIdRef.current) return;
+      commitNotes((prevNotes) => {
+        const next = prevNotes.map((note) => {
+          if (note.id === noteId) {
+            const updated = { ...note, content, updatedAt: Date.now() };
+            return updated;
+          }
+          return note;
+        });
+        return next;
+      });
+      scheduleNoteSave();
+    },
+    [commitNotes, scheduleNoteSave]
+  );
+
+  const handleUpdateNoteTitle = useCallback(
+    (noteId: string, title: string) => {
+      if (!activeBoardIdRef.current) return;
+      commitNotes((prevNotes) => {
+        const next = prevNotes.map((note) => {
+          if (note.id === noteId) {
+            const updated = { ...note, title, updatedAt: Date.now() };
+            return updated;
+          }
+          return note;
+        });
+        return next;
+      });
+      scheduleNoteSave();
+    },
+    [commitNotes, scheduleNoteSave]
+  );
+
+  const handleAssignNoteToFrame = useCallback(
+    (noteId: string, frameId: string | null) => {
+      if (!activeBoardIdRef.current) return;
+      commitNotes((prevNotes) => {
+        const next = prevNotes.map((note) => {
+          if (note.id !== noteId) return note;
+          if ((note.frameId ?? null) === frameId) return note;
+          const updated: Note = { ...note, frameId, updatedAt: Date.now() };
           return updated;
-        }
-        return note;
+        });
+        return next;
       });
-      return next;
-    });
-  }, []);
+      scheduleNoteSave();
+    },
+    [commitNotes, scheduleNoteSave]
+  );
 
-  const handleUpdateNoteTitle = useCallback((noteId: string, title: string) => {
-    if (!activeBoardIdRef.current) return;
-    const boardId = activeBoardIdRef.current;
-    setNotes((prevNotes) => {
-      const next = prevNotes.map((note) => {
-        if (note.id === noteId) {
-          const updated = { ...note, title, updatedAt: Date.now() };
-          updateNoteInStorage(boardId, updated);
-          return updated;
-        }
-        return note;
+  const handleUpdateFrame = useCallback(
+    (updatedFrame: Frame) => {
+      if (!activeBoardIdRef.current) return;
+      commitFrames((prev) => {
+        const idx = prev.findIndex((f) => f.id === updatedFrame.id);
+        const next =
+          idx >= 0
+            ? prev.map((f) => (f.id === updatedFrame.id ? updatedFrame : f))
+            : [...prev, updatedFrame];
+        return next;
       });
-      return next;
-    });
-  }, []);
-
-  const handleAssignNoteToFrame = useCallback((noteId: string, frameId: string | null) => {
-    if (!activeBoardIdRef.current) return;
-    const boardId = activeBoardIdRef.current;
-    setNotes((prevNotes) => {
-      const next = prevNotes.map((note) => {
-        if (note.id !== noteId) return note;
-        if ((note.frameId ?? null) === frameId) return note;
-        const updated: Note = { ...note, frameId, updatedAt: Date.now() };
-        updateNoteInStorage(boardId, updated);
-        return updated;
-      });
-      return next;
-    });
-  }, []);
-
-  const handleUpdateFrame = useCallback((updatedFrame: Frame) => {
-    if (!activeBoardIdRef.current) return;
-    const boardId = activeBoardIdRef.current;
-    setFrames((prev) => {
-      const idx = prev.findIndex((f) => f.id === updatedFrame.id);
-      const next =
-        idx >= 0
-          ? prev.map((f) => (f.id === updatedFrame.id ? updatedFrame : f))
-          : [...prev, updatedFrame];
-      saveFrames(boardId, next);
-      return next;
-    });
-  }, []);
+      scheduleFrameSave();
+    },
+    [commitFrames, scheduleFrameSave]
+  );
 
   const handleUpdateWhiteboardItem = useCallback(
     (item: WhiteboardItem) => {
@@ -449,6 +529,8 @@ const App: React.FC = () => {
         boards={boards}
         activeBoardId={activeBoardId}
         onCreateBoard={() => {
+          flushNoteSaves();
+          flushFrameSaves();
           flushWhiteboardSaves();
           const existing = getBoards();
           const idx = existing.length + 1;
@@ -469,6 +551,8 @@ const App: React.FC = () => {
             if (window.innerWidth < 768) setIsSidebarOpen(false);
             return;
           }
+          flushNoteSaves();
+          flushFrameSaves();
           flushWhiteboardSaves();
           setActiveBoardId(boardId);
           setActiveBoardIdState(boardId);
@@ -490,6 +574,8 @@ const App: React.FC = () => {
 
           // If we deleted the active board, switch to another (or recreate a default).
           if (activeBoardId === boardId) {
+            flushNoteSaves();
+            flushFrameSaves();
             flushWhiteboardSaves();
           }
 
