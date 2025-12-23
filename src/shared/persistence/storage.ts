@@ -1,18 +1,19 @@
 import { Frame, Note, WhiteboardBoard, WhiteboardItem } from '../types';
 import { v4 as uuidv4 } from 'uuid';
 
-const LEGACY_NOTES_KEY = 'obsidian_clone_notes';
-const LEGACY_WHITEBOARD_KEY = 'obsidian_clone_whiteboard_items';
-const LEGACY_FRAMES_KEY = 'obsidian_clone_frames';
+const LEGACY_NOTES_KEY = 'whiteboard-note_notes';
+const LEGACY_WHITEBOARD_KEY = 'whiteboard-note_whiteboard_items';
+const LEGACY_FRAMES_KEY = 'whiteboard-note_frames';
 
-const BOARDS_KEY = 'obsidian_clone_whiteboards';
-const ACTIVE_BOARD_ID_KEY = 'obsidian_clone_active_whiteboard_id';
+const BOARDS_KEY = 'whiteboard-note_whiteboards';
+const ACTIVE_BOARD_ID_KEY = 'whiteboard-note_active_whiteboard_id';
 
-const notesKeyForBoard = (boardId: string) => `obsidian_clone_board_${boardId}_notes`;
-const whiteboardItemsKeyForBoard = (boardId: string) => `obsidian_clone_board_${boardId}_whiteboard_items`;
-const framesKeyForBoard = (boardId: string) => `obsidian_clone_board_${boardId}_frames`;
+const notesKeyForBoard = (boardId: string) => `whiteboard-note_board_${boardId}_notes`;
+const whiteboardItemsKeyForBoard = (boardId: string) =>
+  `whiteboard-note_board_${boardId}_whiteboard_items`;
+const framesKeyForBoard = (boardId: string) => `whiteboard-note_board_${boardId}_frames`;
 
-const safeParse = <T,>(raw: string | null, fallback: T): T => {
+const safeParse = <T>(raw: string | null, fallback: T): T => {
   if (!raw) return fallback;
   try {
     return JSON.parse(raw) as T;
@@ -66,12 +67,17 @@ export const createBoard = (name?: string): WhiteboardBoard => {
   };
 };
 
-export const ensureBoardsInitialized = (opts?: { defaultBoardName?: string }): { boards: WhiteboardBoard[]; activeBoardId: string } => {
+export const ensureBoardsInitialized = (opts?: {
+  defaultBoardName?: string;
+}): { boards: WhiteboardBoard[]; activeBoardId: string } => {
   const existingBoards = getBoards();
   const existingActive = getActiveBoardId();
 
   if (existingBoards.length > 0) {
-    const activeBoardId = existingActive && existingBoards.some(b => b.id === existingActive) ? existingActive : existingBoards[0].id;
+    const activeBoardId =
+      existingActive && existingBoards.some((b) => b.id === existingActive)
+        ? existingActive
+        : existingBoards[0].id;
     if (activeBoardId !== existingActive) setActiveBoardId(activeBoardId);
     return { boards: existingBoards, activeBoardId };
   }
@@ -128,7 +134,7 @@ export const getNotes = (boardId: string): Note[] => {
   try {
     return safeParse<Note[]>(localStorage.getItem(notesKeyForBoard(boardId)), []);
   } catch (e) {
-    console.error("Failed to load notes", e);
+    console.error('Failed to load notes', e);
     return [];
   }
 };
@@ -137,7 +143,7 @@ export const saveNotes = (boardId: string, notes: Note[]) => {
   try {
     localStorage.setItem(notesKeyForBoard(boardId), JSON.stringify(notes));
   } catch (e) {
-    console.error("Failed to save notes", e);
+    console.error('Failed to save notes', e);
   }
 };
 
@@ -183,7 +189,7 @@ export const createFrame = (x: number, y: number): Frame => {
 
 export const upsertFrame = (boardId: string, frame: Frame) => {
   const frames = getFrames(boardId);
-  const idx = frames.findIndex(f => f.id === frame.id);
+  const idx = frames.findIndex((f) => f.id === frame.id);
   if (idx >= 0) {
     frames[idx] = frame;
   } else {
@@ -194,12 +200,15 @@ export const upsertFrame = (boardId: string, frame: Frame) => {
 
 export const deleteFrameFromStorage = (boardId: string, id: string) => {
   const frames = getFrames(boardId);
-  saveFrames(boardId, frames.filter(f => f.id !== id));
+  saveFrames(
+    boardId,
+    frames.filter((f) => f.id !== id)
+  );
 };
 
 export const updateNoteInStorage = (boardId: string, updatedNote: Note) => {
   const notes = getNotes(boardId);
-  const index = notes.findIndex(n => n.id === updatedNote.id);
+  const index = notes.findIndex((n) => n.id === updatedNote.id);
   if (index >= 0) {
     notes[index] = updatedNote;
   } else {
@@ -210,13 +219,16 @@ export const updateNoteInStorage = (boardId: string, updatedNote: Note) => {
 
 export const deleteNoteFromStorage = (boardId: string, id: string) => {
   const notes = getNotes(boardId);
-  const filtered = notes.filter(n => n.id !== id);
+  const filtered = notes.filter((n) => n.id !== id);
   saveNotes(boardId, filtered);
 };
 
 export const getWhiteboardItems = (boardId: string): WhiteboardItem[] => {
   try {
-    return safeParse<WhiteboardItem[]>(localStorage.getItem(whiteboardItemsKeyForBoard(boardId)), []);
+    return safeParse<WhiteboardItem[]>(
+      localStorage.getItem(whiteboardItemsKeyForBoard(boardId)),
+      []
+    );
   } catch (e) {
     console.error('Failed to load whiteboard items', e);
     return [];
@@ -231,7 +243,11 @@ export const saveWhiteboardItems = (boardId: string, items: WhiteboardItem[]) =>
   }
 };
 
-export const createWhiteboardItemForNote = (noteId: string, x: number, y: number): WhiteboardItem => {
+export const createWhiteboardItemForNote = (
+  noteId: string,
+  x: number,
+  y: number
+): WhiteboardItem => {
   return {
     id: uuidv4(),
     noteId,
@@ -245,7 +261,7 @@ export const createWhiteboardItemForNote = (noteId: string, x: number, y: number
 
 export const upsertWhiteboardItem = (boardId: string, item: WhiteboardItem) => {
   const items = getWhiteboardItems(boardId);
-  const index = items.findIndex(i => i.id === item.id);
+  const index = items.findIndex((i) => i.id === item.id);
   if (index >= 0) {
     items[index] = item;
   } else {
@@ -275,5 +291,8 @@ export const batchUpsertWhiteboardItems = (boardId: string, updates: WhiteboardI
 
 export const deleteWhiteboardItemsByNoteId = (boardId: string, noteId: string) => {
   const items = getWhiteboardItems(boardId);
-  saveWhiteboardItems(boardId, items.filter(i => i.noteId !== noteId));
+  saveWhiteboardItems(
+    boardId,
+    items.filter((i) => i.noteId !== noteId)
+  );
 };

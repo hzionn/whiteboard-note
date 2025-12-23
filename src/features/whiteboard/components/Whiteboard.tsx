@@ -1,34 +1,32 @@
+'use client';
+
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Frame, Note, WhiteboardItem } from '@/shared/types';
 import { Editor } from '@/features/editor/components/Editor';
 import { Trash2 } from 'lucide-react';
 
-type DragState =
-  | {
-      itemId: string;
-      pointerId: number;
-      startPointerX: number;
-      startPointerY: number;
-      startX: number;
-      startY: number;
-    }
-  | null;
+type DragState = {
+  itemId: string;
+  pointerId: number;
+  startPointerX: number;
+  startPointerY: number;
+  startX: number;
+  startY: number;
+} | null;
 
 type ResizeDir = 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw';
 
-type ResizeState =
-  | {
-      itemId: string;
-      pointerId: number;
-      dir: ResizeDir;
-      startPointerX: number;
-      startPointerY: number;
-      startX: number;
-      startY: number;
-      startW: number;
-      startH: number;
-    }
-  | null;
+type ResizeState = {
+  itemId: string;
+  pointerId: number;
+  dir: ResizeDir;
+  startPointerX: number;
+  startPointerY: number;
+  startX: number;
+  startY: number;
+  startW: number;
+  startH: number;
+} | null;
 
 interface WhiteboardProps {
   notes: Note[];
@@ -53,15 +51,13 @@ type Camera = {
   scale: number;
 };
 
-type PanState =
-  | {
-      pointerId: number;
-      startPointerX: number;
-      startPointerY: number;
-      startTx: number;
-      startTy: number;
-    }
-  | null;
+type PanState = {
+  pointerId: number;
+  startPointerX: number;
+  startPointerY: number;
+  startTx: number;
+  startTy: number;
+} | null;
 
 export const Whiteboard: React.FC<WhiteboardProps> = ({
   notes,
@@ -80,7 +76,7 @@ export const Whiteboard: React.FC<WhiteboardProps> = ({
   centerOnFrameRequest,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
-  const noteById = useMemo(() => new Map(notes.map(n => [n.id, n])), [notes]);
+  const noteById = useMemo(() => new Map(notes.map((n) => [n.id, n])), [notes]);
   const worldRef = useRef<HTMLDivElement>(null);
 
   const itemsRef = useRef<WhiteboardItem[]>(items);
@@ -180,8 +176,8 @@ export const Whiteboard: React.FC<WhiteboardProps> = ({
     const cx = item.x + item.width / 2;
     const cy = item.y + item.height / 2;
     const candidates = framesRef.current
-      .filter(f => cx >= f.x && cx <= f.x + f.width && cy >= f.y && cy <= f.y + f.height)
-      .map(f => ({ id: f.id, area: f.width * f.height }));
+      .filter((f) => cx >= f.x && cx <= f.x + f.width && cy >= f.y && cy <= f.y + f.height)
+      .map((f) => ({ id: f.id, area: f.width * f.height }));
     if (candidates.length === 0) return null;
     // If multiple frames overlap, choose the smallest (most specific).
     candidates.sort((a, b) => a.area - b.area);
@@ -201,7 +197,7 @@ export const Whiteboard: React.FC<WhiteboardProps> = ({
       const dxWorld = dx / scale;
       const dyWorld = dy / scale;
 
-      const item = itemsRef.current.find(i => i.id === drag.itemId);
+      const item = itemsRef.current.find((i) => i.id === drag.itemId);
       if (!item) return;
 
       onUpdateItem({
@@ -215,7 +211,7 @@ export const Whiteboard: React.FC<WhiteboardProps> = ({
       if (!drag) return;
       if (e.pointerId !== drag.pointerId) return;
 
-      const item = itemsRef.current.find(i => i.id === drag.itemId);
+      const item = itemsRef.current.find((i) => i.id === drag.itemId);
       if (item) {
         const nextFrameId = findContainingFrameIdForItem(item);
         onAssignNoteToFrame(item.noteId, nextFrameId);
@@ -248,7 +244,7 @@ export const Whiteboard: React.FC<WhiteboardProps> = ({
       const dxWorld = dx / scale;
       const dyWorld = dy / scale;
 
-      const frame = framesRef.current.find(f => f.id === frameDrag.itemId);
+      const frame = framesRef.current.find((f) => f.id === frameDrag.itemId);
       if (!frame) return;
 
       onUpdateFrame({
@@ -289,7 +285,7 @@ export const Whiteboard: React.FC<WhiteboardProps> = ({
       const dxWorld = dx / scale;
       const dyWorld = dy / scale;
 
-      const item = itemsRef.current.find(i => i.id === resize.itemId);
+      const item = itemsRef.current.find((i) => i.id === resize.itemId);
       if (!item) return;
 
       let nextX = resize.startX;
@@ -360,7 +356,7 @@ export const Whiteboard: React.FC<WhiteboardProps> = ({
       const dxWorld = dx / scale;
       const dyWorld = dy / scale;
 
-      const frame = framesRef.current.find(f => f.id === frameResize.itemId);
+      const frame = framesRef.current.find((f) => f.id === frameResize.itemId);
       if (!frame) return;
 
       let nextX = frameResize.startX;
@@ -514,7 +510,7 @@ export const Whiteboard: React.FC<WhiteboardProps> = ({
     const el = containerRef.current;
     if (!el) return;
 
-    const item = items.find(i => i.noteId === centerOnRequest.noteId);
+    const item = items.find((i) => i.noteId === centerOnRequest.noteId);
     if (!item) return;
 
     const rect = el.getBoundingClientRect();
@@ -535,7 +531,7 @@ export const Whiteboard: React.FC<WhiteboardProps> = ({
     const el = containerRef.current;
     if (!el) return;
 
-    const frame = frames.find(f => f.id === centerOnFrameRequest.frameId);
+    const frame = frames.find((f) => f.id === centerOnFrameRequest.frameId);
     if (!frame) return;
 
     const rect = el.getBoundingClientRect();
@@ -567,7 +563,11 @@ export const Whiteboard: React.FC<WhiteboardProps> = ({
     // Only create a new note when double-clicking the canvas background.
     // Double-clicks inside an existing note (e.g., text selection) should not create notes.
     const target = e.target as HTMLElement | null;
-    if (target && (target.closest('[data-whiteboard-note="true"]') || target.closest('[data-whiteboard-frame="true"]'))) {
+    if (
+      target &&
+      (target.closest('[data-whiteboard-note="true"]') ||
+        target.closest('[data-whiteboard-frame="true"]'))
+    ) {
       return;
     }
 
@@ -596,7 +596,11 @@ export const Whiteboard: React.FC<WhiteboardProps> = ({
         onPointerDown={(e) => {
           if (!isSpaceDown) return;
           const target = e.target as HTMLElement | null;
-          if (target && (target.closest('[data-whiteboard-note="true"]') || target.closest('[data-whiteboard-frame="true"]'))) {
+          if (
+            target &&
+            (target.closest('[data-whiteboard-note="true"]') ||
+              target.closest('[data-whiteboard-frame="true"]'))
+          ) {
             return;
           }
           e.preventDefault();
@@ -612,7 +616,11 @@ export const Whiteboard: React.FC<WhiteboardProps> = ({
         }}
         onClick={(e) => {
           const target = e.target as HTMLElement | null;
-          if (target && (target.closest('[data-whiteboard-note="true"]') || target.closest('[data-whiteboard-frame="true"]'))) {
+          if (
+            target &&
+            (target.closest('[data-whiteboard-note="true"]') ||
+              target.closest('[data-whiteboard-frame="true"]'))
+          ) {
             return;
           }
           onActivateNote(null);
@@ -638,7 +646,7 @@ export const Whiteboard: React.FC<WhiteboardProps> = ({
           {frames
             .slice()
             .sort((a, b) => a.z - b.z)
-            .map(frame => {
+            .map((frame) => {
               const edge = 'min(24px, calc(6px / var(--wb-scale)))';
               const corner = 'min(32px, calc(10px / var(--wb-scale)))';
               const inset = 'min(48px, calc(10px / var(--wb-scale)))';
@@ -663,18 +671,48 @@ export const Whiteboard: React.FC<WhiteboardProps> = ({
                   }}
                 >
                   {/* Resize handles */}
-                  {(
-                    [
-                      { dir: 'n' as const, style: { left: inset, right: inset, top: 0, height: edge }, cursor: 'n-resize' },
-                      { dir: 's' as const, style: { left: inset, right: inset, bottom: 0, height: edge }, cursor: 's-resize' },
-                      { dir: 'w' as const, style: { top: inset, bottom: inset, left: 0, width: edge }, cursor: 'w-resize' },
-                      { dir: 'e' as const, style: { top: inset, bottom: inset, right: 0, width: edge }, cursor: 'e-resize' },
-                      { dir: 'nw' as const, style: { left: 0, top: 0, width: corner, height: corner }, cursor: 'nwse-resize' },
-                      { dir: 'ne' as const, style: { right: 0, top: 0, width: corner, height: corner }, cursor: 'nesw-resize' },
-                      { dir: 'sw' as const, style: { left: 0, bottom: 0, width: corner, height: corner }, cursor: 'nesw-resize' },
-                      { dir: 'se' as const, style: { right: 0, bottom: 0, width: corner, height: corner }, cursor: 'nwse-resize' },
-                    ]
-                  ).map(h => (
+                  {[
+                    {
+                      dir: 'n' as const,
+                      style: { left: inset, right: inset, top: 0, height: edge },
+                      cursor: 'n-resize',
+                    },
+                    {
+                      dir: 's' as const,
+                      style: { left: inset, right: inset, bottom: 0, height: edge },
+                      cursor: 's-resize',
+                    },
+                    {
+                      dir: 'w' as const,
+                      style: { top: inset, bottom: inset, left: 0, width: edge },
+                      cursor: 'w-resize',
+                    },
+                    {
+                      dir: 'e' as const,
+                      style: { top: inset, bottom: inset, right: 0, width: edge },
+                      cursor: 'e-resize',
+                    },
+                    {
+                      dir: 'nw' as const,
+                      style: { left: 0, top: 0, width: corner, height: corner },
+                      cursor: 'nwse-resize',
+                    },
+                    {
+                      dir: 'ne' as const,
+                      style: { right: 0, top: 0, width: corner, height: corner },
+                      cursor: 'nesw-resize',
+                    },
+                    {
+                      dir: 'sw' as const,
+                      style: { left: 0, bottom: 0, width: corner, height: corner },
+                      cursor: 'nesw-resize',
+                    },
+                    {
+                      dir: 'se' as const,
+                      style: { right: 0, bottom: 0, width: corner, height: corner },
+                      cursor: 'nwse-resize',
+                    },
+                  ].map((h) => (
                     <div
                       key={h.dir}
                       className="absolute z-10 pointer-events-auto"
@@ -704,7 +742,10 @@ export const Whiteboard: React.FC<WhiteboardProps> = ({
                     onPointerDown={(e) => {
                       // Allow input focus without dragging
                       const target = e.target as HTMLElement | null;
-                      if (target && (target.tagName?.toLowerCase() === 'input' || target.closest('input'))) {
+                      if (
+                        target &&
+                        (target.tagName?.toLowerCase() === 'input' || target.closest('input'))
+                      ) {
                         e.stopPropagation();
                         return;
                       }
@@ -750,7 +791,7 @@ export const Whiteboard: React.FC<WhiteboardProps> = ({
           {items
             .slice()
             .sort((a, b) => a.z - b.z)
-            .map(item => {
+            .map((item) => {
               const note = noteById.get(item.noteId);
               if (!note) return null;
 
@@ -783,18 +824,48 @@ export const Whiteboard: React.FC<WhiteboardProps> = ({
                   onDoubleClick={(e) => e.stopPropagation()}
                 >
                   {/* Resize handles (thin hit areas along the border) */}
-                  {(
-                    [
-                      { dir: 'n' as const, style: { left: inset, right: inset, top: 0, height: edge }, cursor: 'n-resize' },
-                      { dir: 's' as const, style: { left: inset, right: inset, bottom: 0, height: edge }, cursor: 's-resize' },
-                      { dir: 'w' as const, style: { top: inset, bottom: inset, left: 0, width: edge }, cursor: 'w-resize' },
-                      { dir: 'e' as const, style: { top: inset, bottom: inset, right: 0, width: edge }, cursor: 'e-resize' },
-                      { dir: 'nw' as const, style: { left: 0, top: 0, width: corner, height: corner }, cursor: 'nwse-resize' },
-                      { dir: 'ne' as const, style: { right: 0, top: 0, width: corner, height: corner }, cursor: 'nesw-resize' },
-                      { dir: 'sw' as const, style: { left: 0, bottom: 0, width: corner, height: corner }, cursor: 'nesw-resize' },
-                      { dir: 'se' as const, style: { right: 0, bottom: 0, width: corner, height: corner }, cursor: 'nwse-resize' },
-                    ]
-                  ).map(h => (
+                  {[
+                    {
+                      dir: 'n' as const,
+                      style: { left: inset, right: inset, top: 0, height: edge },
+                      cursor: 'n-resize',
+                    },
+                    {
+                      dir: 's' as const,
+                      style: { left: inset, right: inset, bottom: 0, height: edge },
+                      cursor: 's-resize',
+                    },
+                    {
+                      dir: 'w' as const,
+                      style: { top: inset, bottom: inset, left: 0, width: edge },
+                      cursor: 'w-resize',
+                    },
+                    {
+                      dir: 'e' as const,
+                      style: { top: inset, bottom: inset, right: 0, width: edge },
+                      cursor: 'e-resize',
+                    },
+                    {
+                      dir: 'nw' as const,
+                      style: { left: 0, top: 0, width: corner, height: corner },
+                      cursor: 'nwse-resize',
+                    },
+                    {
+                      dir: 'ne' as const,
+                      style: { right: 0, top: 0, width: corner, height: corner },
+                      cursor: 'nesw-resize',
+                    },
+                    {
+                      dir: 'sw' as const,
+                      style: { left: 0, bottom: 0, width: corner, height: corner },
+                      cursor: 'nesw-resize',
+                    },
+                    {
+                      dir: 'se' as const,
+                      style: { right: 0, bottom: 0, width: corner, height: corner },
+                      cursor: 'nwse-resize',
+                    },
+                  ].map((h) => (
                     <div
                       key={h.dir}
                       className="absolute z-20"
@@ -877,14 +948,14 @@ export const Whiteboard: React.FC<WhiteboardProps> = ({
                   <div className="h-[calc(100%-2.5rem)] bg-obsidian-bg">
                     {/* Stop bubbling so text-selection double-clicks don't create new notes */}
                     <div className="h-full" onDoubleClick={(e) => e.stopPropagation()}>
-                    <Editor
-                      key={note.id}
-                      variant="embedded"
-                      content={note.content}
-                      onChange={noteContentChangeHandlers[note.id]}
-                      title={note.title}
-                      onTitleChange={noteTitleChangeHandlers[note.id]}
-                    />
+                      <Editor
+                        key={note.id}
+                        variant="embedded"
+                        content={note.content}
+                        onChange={noteContentChangeHandlers[note.id]}
+                        title={note.title}
+                        onTitleChange={noteTitleChangeHandlers[note.id]}
+                      />
                     </div>
                   </div>
                 </div>

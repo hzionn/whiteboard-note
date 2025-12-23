@@ -10,11 +10,10 @@ View your app in AI Studio: https://ai.studio/apps/drive/1j8cIt8-laKK3GzSX5W6JsX
 
 ## Run Locally
 
-**Prerequisites:**  Node.js
-
+**Prerequisites:** Node.js
 
 1. Install dependencies:
    `npm install`
-2. Create `.env.local` (see [.env.example](.env.example)) and set `VITE_GEMINI_API_KEY` to your Gemini API key
+2. Create `.env.local` (see [.env.example](.env.example)) and set `GEMINI_API_KEY` to your Gemini API key
 3. Run the app:
    `npm run dev`

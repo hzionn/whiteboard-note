@@ -1,5 +1,5 @@
 {
-  "name": "Obsidian Clone",
+  "name": "whiteboard-note",
   "description": "A true WYSIWYG markdown note-taking app featuring an Obsidian-like interface, live preview editing, and AI-powered writing assistance.",
   "requestFramePermissions": []
 }

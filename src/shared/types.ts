@@ -41,5 +41,5 @@ export interface SearchResult {
 
 export enum ViewMode {
   EDITOR = 'EDITOR',
-  PREVIEW = 'PREVIEW'
+  PREVIEW = 'PREVIEW',
 }

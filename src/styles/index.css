@@ -26,7 +26,7 @@ body {
   background: #444;
 }
 
-/* CodeMirror Specific Overrides for Obsidian Feel */
+/* CodeMirror Specific Overrides for whiteboard-note Feel */
 .cm-editor {
   height: 100%;
   background-color: transparent !important;

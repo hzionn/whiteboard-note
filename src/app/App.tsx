@@ -1,3 +1,5 @@
+'use client';
+
 import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { Sidebar } from '@/features/boards/components/Sidebar';
 import { Whiteboard } from '@/features/whiteboard/components/Whiteboard';
@@ -27,8 +29,8 @@ import { v4 as uuidv4 } from 'uuid';
 
 const createWelcomeNote = (): Note => ({
   id: uuidv4(),
-  title: 'Welcome to Obsidian Clone',
-  content: `# Welcome to Obsidian Clone
+  title: 'Welcome to whiteboard-note',
+  content: `# Welcome to whiteboard-note
 
 This is a **true WYSIWYG** markdown editor experiment.
 
@@ -62,8 +64,13 @@ const App: React.FC = () => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [whiteboardItems, setWhiteboardItems] = useState<WhiteboardItem[]>([]);
   const [frames, setFrames] = useState<Frame[]>([]);
-  const [centerOnRequest, setCenterOnRequest] = useState<{ noteId: string; nonce: number } | null>(null);
-  const [centerOnFrameRequest, setCenterOnFrameRequest] = useState<{ frameId: string; nonce: number } | null>(null);
+  const [centerOnRequest, setCenterOnRequest] = useState<{ noteId: string; nonce: number } | null>(
+    null
+  );
+  const [centerOnFrameRequest, setCenterOnFrameRequest] = useState<{
+    frameId: string;
+    nonce: number;
+  } | null>(null);
   const [isNotesDropdownOpen, setIsNotesDropdownOpen] = useState(false);
   const [notesSearch, setNotesSearch] = useState('');
   const notesDropdownRef = useRef<HTMLDivElement>(null);
@@ -96,11 +103,14 @@ const App: React.FC = () => {
     batchUpsertWhiteboardItems(boardId, pending);
   }, []);
 
-  const scheduleWhiteboardSave = useCallback((item: WhiteboardItem) => {
-    pendingWhiteboardSavesRef.current.set(item.id, item);
-    if (whiteboardSaveTimerRef.current != null) return;
-    whiteboardSaveTimerRef.current = window.setTimeout(flushWhiteboardSaves, 250);
-  }, [flushWhiteboardSaves]);
+  const scheduleWhiteboardSave = useCallback(
+    (item: WhiteboardItem) => {
+      pendingWhiteboardSavesRef.current.set(item.id, item);
+      if (whiteboardSaveTimerRef.current != null) return;
+      whiteboardSaveTimerRef.current = window.setTimeout(flushWhiteboardSaves, 250);
+    },
+    [flushWhiteboardSaves]
+  );
 
   const loadBoardData = useCallback((boardId: string) => {
     const storedNotes = getNotes(boardId);
@@ -170,21 +180,25 @@ const App: React.FC = () => {
     };
   }, [flushWhiteboardSaves]);
 
-  const activeNote = useMemo(() => notes.find(n => n.id === activeNoteId) ?? null, [notes, activeNoteId]);
+  const activeNote = useMemo(
+    () => notes.find((n) => n.id === activeNoteId) ?? null,
+    [notes, activeNoteId]
+  );
 
   const filteredNotes = useMemo(() => {
     const query = notesSearch.trim().toLowerCase();
     if (!query) return notes;
-    return notes.filter(n =>
-      (n.title ?? '').toLowerCase().includes(query) ||
-      (n.content ?? '').toLowerCase().includes(query)
+    return notes.filter(
+      (n) =>
+        (n.title ?? '').toLowerCase().includes(query) ||
+        (n.content ?? '').toLowerCase().includes(query)
     );
   }, [notes, notesSearch]);
 
   const filteredFrames = useMemo(() => {
     const query = framesSearch.trim().toLowerCase();
     if (!query) return frames;
-    return frames.filter(f => (f.name ?? '').toLowerCase().includes(query));
+    return frames.filter((f) => (f.name ?? '').toLowerCase().includes(query));
   }, [frames, framesSearch]);
 
   const handleCreateNoteAt = (x: number, y: number) => {
@@ -195,7 +209,7 @@ const App: React.FC = () => {
     saveNotes(activeBoardId, updatedNotes);
     setActiveNoteId(newNote.id);
 
-    setWhiteboardItems(prev => {
+    setWhiteboardItems((prev) => {
       const item = createWhiteboardItemForNote(newNote.id, x, y);
       const next = [...prev, item];
       saveWhiteboardItems(activeBoardId, next);
@@ -212,7 +226,7 @@ const App: React.FC = () => {
     const x = 120 + (idx % 3) * 40;
     const y = 120 + idx * 40;
     const frame = createFrame(x, y);
-    setFrames(prev => {
+    setFrames((prev) => {
       const next = [...prev, frame];
       saveFrames(activeBoardId, next);
       return next;
@@ -264,23 +278,26 @@ const App: React.FC = () => {
     return () => window.clearTimeout(id);
   }, [isFramesDropdownOpen]);
 
-  const deleteNoteById = useCallback((id: string) => {
-    if (!activeBoardIdRef.current) return;
-    if (!window.confirm('Are you sure you want to delete this note?')) return;
-    const boardId = activeBoardIdRef.current;
+  const deleteNoteById = useCallback(
+    (id: string) => {
+      if (!activeBoardIdRef.current) return;
+      if (!window.confirm('Are you sure you want to delete this note?')) return;
+      const boardId = activeBoardIdRef.current;
 
-    setNotes(prev => {
-      const updatedNotes = prev.filter(n => n.id !== id);
-      deleteNoteFromStorage(boardId, id);
-      if (activeNoteId === id) {
-        setActiveNoteId(updatedNotes.length > 0 ? updatedNotes[0].id : null);
-      }
-      return updatedNotes;
-    });
+      setNotes((prev) => {
+        const updatedNotes = prev.filter((n) => n.id !== id);
+        deleteNoteFromStorage(boardId, id);
+        if (activeNoteId === id) {
+          setActiveNoteId(updatedNotes.length > 0 ? updatedNotes[0].id : null);
+        }
+        return updatedNotes;
+      });
 
-    deleteWhiteboardItemsByNoteId(boardId, id);
-    setWhiteboardItems(prev => prev.filter(i => i.noteId !== id));
-  }, [activeNoteId]);
+      deleteWhiteboardItemsByNoteId(boardId, id);
+      setWhiteboardItems((prev) => prev.filter((i) => i.noteId !== id));
+    },
+    [activeNoteId]
+  );
 
   const handleDeleteNote = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -290,8 +307,8 @@ const App: React.FC = () => {
   const handleUpdateNoteContent = useCallback((noteId: string, content: string) => {
     if (!activeBoardIdRef.current) return;
     const boardId = activeBoardIdRef.current;
-    setNotes(prevNotes => {
-      const next = prevNotes.map(note => {
+    setNotes((prevNotes) => {
+      const next = prevNotes.map((note) => {
         if (note.id === noteId) {
           const updated = { ...note, content, updatedAt: Date.now() };
           updateNoteInStorage(boardId, updated);
@@ -306,8 +323,8 @@ const App: React.FC = () => {
   const handleUpdateNoteTitle = useCallback((noteId: string, title: string) => {
     if (!activeBoardIdRef.current) return;
     const boardId = activeBoardIdRef.current;
-    setNotes(prevNotes => {
-      const next = prevNotes.map(note => {
+    setNotes((prevNotes) => {
+      const next = prevNotes.map((note) => {
         if (note.id === noteId) {
           const updated = { ...note, title, updatedAt: Date.now() };
           updateNoteInStorage(boardId, updated);
@@ -322,8 +339,8 @@ const App: React.FC = () => {
   const handleAssignNoteToFrame = useCallback((noteId: string, frameId: string | null) => {
     if (!activeBoardIdRef.current) return;
     const boardId = activeBoardIdRef.current;
-    setNotes(prevNotes => {
-      const next = prevNotes.map(note => {
+    setNotes((prevNotes) => {
+      const next = prevNotes.map((note) => {
         if (note.id !== noteId) return note;
         if ((note.frameId ?? null) === frameId) return note;
         const updated: Note = { ...note, frameId, updatedAt: Date.now() };
@@ -337,26 +354,32 @@ const App: React.FC = () => {
   const handleUpdateFrame = useCallback((updatedFrame: Frame) => {
     if (!activeBoardIdRef.current) return;
     const boardId = activeBoardIdRef.current;
-    setFrames(prev => {
-      const idx = prev.findIndex(f => f.id === updatedFrame.id);
-      const next = idx >= 0 ? prev.map(f => (f.id === updatedFrame.id ? updatedFrame : f)) : [...prev, updatedFrame];
+    setFrames((prev) => {
+      const idx = prev.findIndex((f) => f.id === updatedFrame.id);
+      const next =
+        idx >= 0
+          ? prev.map((f) => (f.id === updatedFrame.id ? updatedFrame : f))
+          : [...prev, updatedFrame];
       saveFrames(boardId, next);
       return next;
     });
   }, []);
 
-  const handleUpdateWhiteboardItem = useCallback((item: WhiteboardItem) => {
-    setWhiteboardItems(prev => {
-      const index = prev.findIndex(i => i.id === item.id);
-      const next = index >= 0 ? prev.map(i => (i.id === item.id ? item : i)) : [...prev, item];
-      scheduleWhiteboardSave(item);
-      return next;
-    });
-  }, [scheduleWhiteboardSave]);
+  const handleUpdateWhiteboardItem = useCallback(
+    (item: WhiteboardItem) => {
+      setWhiteboardItems((prev) => {
+        const index = prev.findIndex((i) => i.id === item.id);
+        const next = index >= 0 ? prev.map((i) => (i.id === item.id ? item : i)) : [...prev, item];
+        scheduleWhiteboardSave(item);
+        return next;
+      });
+    },
+    [scheduleWhiteboardSave]
+  );
 
   return (
     <div className="flex h-screen overflow-hidden bg-obsidian-bg text-obsidian-text font-sans">
-      <Sidebar 
+      <Sidebar
         isOpen={isSidebarOpen}
         onToggle={() => setIsSidebarOpen(!isSidebarOpen)}
         boards={boards}
@@ -388,14 +411,14 @@ const App: React.FC = () => {
           if (window.innerWidth < 768) setIsSidebarOpen(false);
         }}
         onDeleteBoard={(boardId) => {
-          const board = boards.find(b => b.id === boardId);
+          const board = boards.find((b) => b.id === boardId);
           const label = board?.name?.trim() ? board.name.trim() : 'this whiteboard';
           if (!window.confirm(`Delete ${label}? This will delete its notes and layout.`)) return;
 
           // Remove persisted data first (best-effort).
           deleteBoardData(boardId);
 
-          const nextBoards = boards.filter(b => b.id !== boardId);
+          const nextBoards = boards.filter((b) => b.id !== boardId);
 
           // If we deleted the active board, switch to another (or recreate a default).
           if (activeBoardId === boardId) {
@@ -430,23 +453,23 @@ const App: React.FC = () => {
 
       <main className="flex-1 h-full relative flex flex-col min-w-0">
         {!isSidebarOpen && (
-             <button 
-             onClick={() => setIsSidebarOpen(true)}
-             className="absolute top-4 left-4 z-20 p-2 text-obsidian-muted hover:text-white md:hidden"
-           >
-             {/* Hamburger handled in Sidebar component for visible state, this is just a trigger area if needed, 
+          <button
+            onClick={() => setIsSidebarOpen(true)}
+            className="absolute top-4 left-4 z-20 p-2 text-obsidian-muted hover:text-white md:hidden"
+          >
+            {/* Hamburger handled in Sidebar component for visible state, this is just a trigger area if needed, 
                  but actually Sidebar toggle button handles open state visibility. 
                  We need a trigger when closed on desktop? No, desktop is always relative.
                  Mobile closed state needs a trigger. */}
-           </button>
+          </button>
         )}
-        
+
         {/* Top Notes Dropdown */}
         <div className="shrink-0 border-b border-obsidian-border bg-obsidian-sidebar/60 backdrop-blur px-4 py-2 flex items-center justify-between relative z-20">
           <div className="flex items-center gap-2">
             <div className="flex items-center gap-2" ref={notesDropdownRef}>
               <button
-                onClick={() => setIsNotesDropdownOpen(v => !v)}
+                onClick={() => setIsNotesDropdownOpen((v) => !v)}
                 className="px-3 py-1.5 rounded bg-obsidian-bg hover:bg-obsidian-active text-sm text-obsidian-text border border-obsidian-border"
                 title="Notes"
               >
@@ -456,7 +479,9 @@ const App: React.FC = () => {
               {isNotesDropdownOpen && (
                 <div className="absolute top-full left-4 mt-2 w-80 max-w-[calc(100vw-2rem)] bg-obsidian-sidebar border border-obsidian-border rounded-md shadow-xl overflow-hidden z-30">
                   {notes.length === 0 ? (
-                    <div className="p-3 text-sm text-obsidian-muted">No notes yet. Double-click the board to create one.</div>
+                    <div className="p-3 text-sm text-obsidian-muted">
+                      No notes yet. Double-click the board to create one.
+                    </div>
                   ) : (
                     <>
                       <div className="p-2 border-b border-obsidian-border">
@@ -472,12 +497,14 @@ const App: React.FC = () => {
                         {filteredNotes.length === 0 ? (
                           <li className="p-3 text-sm text-obsidian-muted">No matching notes.</li>
                         ) : (
-                          filteredNotes.map(note => (
+                          filteredNotes.map((note) => (
                             <li key={note.id}>
                               <div
                                 className={
                                   'w-full px-3 py-2 text-sm flex items-center justify-between gap-3 ' +
-                                  (note.id === activeNoteId ? 'bg-obsidian-active text-white' : 'text-obsidian-text hover:bg-obsidian-bg')
+                                  (note.id === activeNoteId
+                                    ? 'bg-obsidian-active text-white'
+                                    : 'text-obsidian-text hover:bg-obsidian-bg')
                                 }
                               >
                                 <button
@@ -515,7 +542,7 @@ const App: React.FC = () => {
 
             <div className="flex items-center gap-2" ref={framesDropdownRef}>
               <button
-                onClick={() => setIsFramesDropdownOpen(v => !v)}
+                onClick={() => setIsFramesDropdownOpen((v) => !v)}
                 className="px-3 py-1.5 rounded bg-obsidian-bg hover:bg-obsidian-active text-sm text-obsidian-text border border-obsidian-border"
                 title="Frames"
               >
@@ -544,7 +571,7 @@ const App: React.FC = () => {
                     {filteredFrames.length === 0 ? (
                       <li className="p-3 text-sm text-obsidian-muted">No matching frames.</li>
                     ) : (
-                      filteredFrames.map(frame => (
+                      filteredFrames.map((frame) => (
                         <li key={frame.id}>
                           <button
                             onClick={() => {
