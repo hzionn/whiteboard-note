@@ -1,12 +1,9 @@
 import { GoogleGenAI } from "@google/genai";
 
 const getAI = () => {
-    // We assume the key is present as per requirements
-    // In a real app, this should handle missing keys gracefully
-    if (!process.env.API_KEY) {
-        console.warn("API Key is missing for Gemini");
-    }
-    return new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
+    const apiKey = (import.meta as any).env?.VITE_GEMINI_API_KEY as string | undefined;
+    if (!apiKey) console.warn('Gemini API key is missing (VITE_GEMINI_API_KEY)');
+    return new GoogleGenAI({ apiKey: apiKey || '' });
 };
 
 export const generateCompletion = async (

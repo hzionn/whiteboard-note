@@ -1,0 +1,130 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  background-color: #1e1e1e;
+  color: #dcddde;
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #333;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #444;
+}
+
+/* CodeMirror Specific Overrides for Obsidian Feel */
+.cm-editor {
+  height: 100%;
+  background-color: transparent !important;
+}
+
+.cm-scroller {
+  font-family: 'Inter', sans-serif;
+  line-height: 1.6;
+  padding-top: 20px;
+  padding-bottom: 300px; /* Overscroll */
+}
+
+.cm-content {
+  max-width: 800px;
+  margin: 0 auto;
+  padding: 0 24px;
+}
+
+.cm-activeLine,
+.cm-activeLineGutter {
+  background-color: transparent !important;
+}
+
+/* Make syntax characters subtle */
+.cm-formatting-header {
+  color: #444;
+  font-weight: normal;
+}
+
+.cm-formatting-quote {
+  color: #555;
+}
+
+.cm-formatting-list {
+  color: #7c3aed;
+}
+
+.cm-quote {
+  color: #999;
+  font-style: italic;
+  border-left: 2px solid #7c3aed;
+  padding-left: 10px;
+}
+
+.cm-strong {
+  font-weight: 700;
+  color: #fff;
+}
+
+.cm-em {
+  font-style: italic;
+  color: #ddd;
+}
+
+/* Code Blocks */
+.cm-line .cm-monospace {
+  font-family: 'JetBrains Mono', monospace;
+  background: #252525;
+  border-radius: 4px;
+  padding: 1px 4px;
+  font-size: 0.9em;
+  color: #e6a5c2;
+}
+
+/* Links */
+.cm-link {
+  color: #9d86e8;
+  text-decoration: none;
+}
+
+.cm-url {
+  color: #555;
+  text-decoration: none;
+}
+
+/* Hidden Syntax for Live Preview */
+.cm-syntax-hidden {
+  /*
+    Don't use `display: none` here.
+    CodeMirror relies on DOM measurements for cursor motion; fully removing
+    spans can cause vertical navigation (notably ArrowUp) to misbehave.
+
+    Keep the span in the DOM but give it zero width so it doesn't affect
+    layout while still providing a measurable position.
+  */
+  display: inline-block;
+  width: 0;
+  overflow: hidden;
+  white-space: pre;
+  pointer-events: none;
+}
+
+/* Checkbox Widget */
+.cm-checkbox-widget {
+  margin-right: 8px;
+  vertical-align: middle;
+  accent-color: #7c3aed;
+  cursor: pointer;
+  width: 16px;
+  height: 16px;
+}
