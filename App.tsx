@@ -82,15 +82,17 @@ const App: React.FC = () => {
   }, [activeBoardId]);
 
   const flushWhiteboardSaves = useCallback(() => {
+    if (whiteboardSaveTimerRef.current != null) {
+      window.clearTimeout(whiteboardSaveTimerRef.current);
+      whiteboardSaveTimerRef.current = null;
+    }
     const boardId = activeBoardIdRef.current;
     if (!boardId) {
       pendingWhiteboardSavesRef.current.clear();
-      whiteboardSaveTimerRef.current = null;
       return;
     }
     const pending = Array.from(pendingWhiteboardSavesRef.current.values());
     pendingWhiteboardSavesRef.current.clear();
-    whiteboardSaveTimerRef.current = null;
     batchUpsertWhiteboardItems(boardId, pending);
   }, []);
 
@@ -113,7 +115,7 @@ const App: React.FC = () => {
       const nextItems = [createWhiteboardItemForNote(welcome.id, 120, 120)];
       saveWhiteboardItems(boardId, nextItems);
       setNotes(nextNotes);
-      setActiveNoteId(welcome.id);
+      setActiveNoteId(null);
       setFrames(storedFrames);
       setWhiteboardItems(nextItems);
       return;
@@ -132,7 +134,7 @@ const App: React.FC = () => {
       saveWhiteboardItems(boardId, initialItems);
     }
 
-    setActiveNoteId(storedNotes[0]?.id ?? null);
+    setActiveNoteId(null);
   }, []);
 
   useEffect(() => {
@@ -146,14 +148,27 @@ const App: React.FC = () => {
 
   useEffect(() => {
     if (!activeBoardId) return;
-    // Flush any pending saves (best-effort) when switching boards.
-    if (whiteboardSaveTimerRef.current != null) {
-      window.clearTimeout(whiteboardSaveTimerRef.current);
-      whiteboardSaveTimerRef.current = null;
-    }
-    pendingWhiteboardSavesRef.current.clear();
     loadBoardData(activeBoardId);
   }, [activeBoardId, loadBoardData]);
+
+  useEffect(() => {
+    // Best-effort: persist any pending whiteboard item updates when the tab is
+    // hidden or the page is unloaded. localStorage writes are synchronous.
+    const onBeforeUnload = () => {
+      flushWhiteboardSaves();
+    };
+
+    const onVisibilityChange = () => {
+      if (document.visibilityState !== 'visible') flushWhiteboardSaves();
+    };
+
+    window.addEventListener('beforeunload', onBeforeUnload);
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    return () => {
+      window.removeEventListener('beforeunload', onBeforeUnload);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+    };
+  }, [flushWhiteboardSaves]);
 
   const activeNote = useMemo(() => notes.find(n => n.id === activeNoteId) ?? null, [notes, activeNoteId]);
 
@@ -347,6 +362,7 @@ const App: React.FC = () => {
         boards={boards}
         activeBoardId={activeBoardId}
         onCreateBoard={() => {
+          flushWhiteboardSaves();
           const existing = getBoards();
           const idx = existing.length + 1;
           const board = createBoard(`Whiteboard ${idx}`);
@@ -366,6 +382,7 @@ const App: React.FC = () => {
             if (window.innerWidth < 768) setIsSidebarOpen(false);
             return;
           }
+          flushWhiteboardSaves();
           setActiveBoardId(boardId);
           setActiveBoardIdState(boardId);
           if (window.innerWidth < 768) setIsSidebarOpen(false);
@@ -382,11 +399,7 @@ const App: React.FC = () => {
 
           // If we deleted the active board, switch to another (or recreate a default).
           if (activeBoardId === boardId) {
-            if (whiteboardSaveTimerRef.current != null) {
-              window.clearTimeout(whiteboardSaveTimerRef.current);
-              whiteboardSaveTimerRef.current = null;
-            }
-            pendingWhiteboardSavesRef.current.clear();
+            flushWhiteboardSaves();
           }
 
           if (nextBoards.length === 0) {

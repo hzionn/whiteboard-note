@@ -4,7 +4,7 @@ import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
 import { languages } from '@codemirror/language-data';
 import { EditorView, ViewPlugin, Decoration, DecorationSet, ViewUpdate, WidgetType, keymap } from '@codemirror/view';
 import { cursorLineUp } from '@codemirror/commands';
-import { Prec } from '@codemirror/state';
+import { Prec, Range } from '@codemirror/state';
 import { syntaxTree, HighlightStyle, syntaxHighlighting } from '@codemirror/language';
 import { tags } from '@lezer/highlight';
 import { Sparkles } from 'lucide-react';
@@ -77,6 +77,8 @@ const openLinkOnModClickPlugin = ViewPlugin.fromClass(
     }
 
     private onMouseDown = (e: MouseEvent) => {
+      if (e.defaultPrevented) return;
+      if (e.button !== 0) return;
       if (!(e.metaKey || e.ctrlKey)) return;
 
       // Only consume the event if we're actually on a link.
@@ -266,7 +268,7 @@ const livePreviewPlugin = ViewPlugin.fromClass(class {
   }
 
   compute(view: EditorView) {
-    const widgets: any[] = [];
+    const widgets: Range<Decoration>[] = [];
     const selection = view.state.selection;
     const hasFocus = view.hasFocus;
     
@@ -442,13 +444,14 @@ export const Editor: React.FC<EditorProps> = React.memo(({ content, onChange, ti
   const [isAiLoading, setIsAiLoading] = useState(false);
   const [aiError, setAiError] = useState<string | null>(null);
 
-  // Focus title on load if empty
+  // Never steal focus on mount: only select the title if the user already focused it.
   const titleInputRef = useRef<HTMLInputElement>(null);
   useEffect(() => {
-      if (title === "Untitled Note" && titleInputRef.current) {
-          titleInputRef.current.select();
-      }
-  }, []);
+    const el = titleInputRef.current;
+    if (!el) return;
+    if (document.activeElement !== el) return;
+    if (title === 'Untitled Note') el.select();
+  }, [title]);
 
   const handleAiAction = async (type: 'continue' | 'summarize' | 'improve') => {
     if (!content) return;
@@ -598,7 +601,7 @@ export const Editor: React.FC<EditorProps> = React.memo(({ content, onChange, ti
           height="100%"
           extensions={extensions}
           onChange={onChange}
-          autoFocus={true}
+          autoFocus={variant === 'full'}
           className="text-lg h-full"
           basicSetup={{
               lineNumbers: false,
